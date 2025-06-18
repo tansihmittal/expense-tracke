@@ -49,14 +49,16 @@ class ConfigManager:
             config = {
                 'GMAIL_CLIENT_ID': st.secrets.get('GMAIL_CLIENT_ID', os.getenv('GMAIL_CLIENT_ID')),
                 'GMAIL_CLIENT_SECRET': st.secrets.get('GMAIL_CLIENT_SECRET', os.getenv('GMAIL_CLIENT_SECRET')),
-                'REPLICATE_API_TOKEN': st.secrets.get('REPLICATE_API_TOKEN', os.getenv('REPLICATE_API_TOKEN'))
+                'REPLICATE_API_TOKEN': st.secrets.get('REPLICATE_API_TOKEN', os.getenv('REPLICATE_API_TOKEN')),
+                'REDIRECT_URI': st.secrets.get('REDIRECT_URI', os.getenv('REDIRECT_URI'))
             }
         except Exception:
             # Fallback to environment variables
             config = {
                 'GMAIL_CLIENT_ID': os.getenv('GMAIL_CLIENT_ID'),
                 'GMAIL_CLIENT_SECRET': os.getenv('GMAIL_CLIENT_SECRET'),
-                'REPLICATE_API_TOKEN': os.getenv('REPLICATE_API_TOKEN')
+                'REPLICATE_API_TOKEN': os.getenv('REPLICATE_API_TOKEN'),
+                'REDIRECT_URI': os.getenv('REDIRECT_URI')
             }
         
         return config
@@ -68,7 +70,8 @@ class ConfigManager:
         required_fields = {
             'GMAIL_CLIENT_ID': 'Gmail OAuth Client ID',
             'GMAIL_CLIENT_SECRET': 'Gmail OAuth Client Secret',
-            'REPLICATE_API_TOKEN': 'Replicate API Token'
+            'REPLICATE_API_TOKEN': 'Replicate API Token',
+            'REDIRECT_URI': 'OAuth Redirect URI'
         }
         
         for key, display_name in required_fields.items():
@@ -97,9 +100,17 @@ class ConfigManager:
                 st.write("""
                 **For Streamlit Cloud:**
                 Add these secrets in your Streamlit Cloud app settings:
-                - `GMAIL_CLIENT_ID`
-                - `GMAIL_CLIENT_SECRET` 
-                - `REPLICATE_API_TOKEN`
+                - `GMAIL_CLIENT_ID` - Your Google OAuth Client ID
+                - `GMAIL_CLIENT_SECRET` - Your Google OAuth Client Secret
+                - `REPLICATE_API_TOKEN` - Your Replicate API token
+                - `REDIRECT_URI` - Your app URL (e.g., https://your-app.streamlit.app/)
+                
+                **Google OAuth Setup:**
+                1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+                2. Create a new project or select existing
+                3. Enable Gmail API
+                4. Create OAuth 2.0 credentials
+                5. Add your Streamlit app URL to authorized redirect URIs
                 
                 **For local development:**
                 Create a `.streamlit/secrets.toml` file:
@@ -107,6 +118,7 @@ class ConfigManager:
                 GMAIL_CLIENT_ID = "your_client_id_here"
                 GMAIL_CLIENT_SECRET = "your_client_secret_here"
                 REPLICATE_API_TOKEN = "your_replicate_token_here"
+                REDIRECT_URI = "http://localhost:8501/"
                 ```
                 """)
 
@@ -132,7 +144,7 @@ class AITransactionCategorizer:
     def categorize_transaction_with_ai(self, subject: str, body: str, amount: str) -> str:
         """Use AI to categorize transactions intelligently"""
         try:
-            url = "https://api.replicate.com/v1/models/openai/gpt-4o-mini/predictions"
+            url = "https://api.replicate.com/v1/models/meta/llama-2-70b-chat/predictions"
             
             headers = {
                 "Authorization": f"Bearer {self.replicate_token}",
@@ -142,37 +154,37 @@ class AITransactionCategorizer:
             transaction_text = f"Subject: {subject}\nBody: {body}\nAmount: {amount}"
             categories_list = ", ".join([cat for cat in self.categories.keys() if cat != 'Other'])
             
-            prompt = f"""
-            You are a financial transaction categorization expert. Analyze the transaction below and assign it to exactly ONE category from this list:
+            prompt = f"""You are a financial transaction categorization expert. Analyze the transaction below and assign it to exactly ONE category from this list:
 
-            {categories_list}
+{categories_list}
 
-            ## Transaction Analysis Guidelines:
-            - ATM Withdrawal: Cash withdrawals, ATM fees
-            - Transfer: UPI, NEFT, RTGS, IMPS, bank transfers
-            - Food & Dining: Restaurants, food delivery, groceries
-            - Shopping: Retail purchases, online shopping, clothing
-            - Bills & Utilities: Electricity, water, phone, internet bills
-            - Transportation: Fuel, taxi, public transport, parking
-            - Entertainment: Movies, games, subscriptions, events
-            - Healthcare: Medical bills, pharmacy, health insurance
-            - Education: School fees, courses, books, training
-            - Investment: Mutual funds, stocks, SIP, insurance premiums
-            - Other: Only if transaction doesn't clearly fit any specific category above
+Transaction Analysis Guidelines:
+- ATM Withdrawal: Cash withdrawals, ATM fees
+- Transfer: UPI, NEFT, RTGS, IMPS, bank transfers
+- Food & Dining: Restaurants, food delivery, groceries
+- Shopping: Retail purchases, online shopping, clothing
+- Bills & Utilities: Electricity, water, phone, internet bills
+- Transportation: Fuel, taxi, public transport, parking
+- Entertainment: Movies, games, subscriptions, events
+- Healthcare: Medical bills, pharmacy, health insurance
+- Education: School fees, courses, books, training
+- Investment: Mutual funds, stocks, SIP, insurance premiums
+- Other: Only if transaction doesn't clearly fit any specific category above
 
-            Transaction: {transaction_text}
+Transaction: {transaction_text}
 
-            Return only the category name. No explanation.
-            """
+Return only the category name. No explanation."""
             
             data = {
                 "input": {
                     "prompt": prompt,
+                    "max_new_tokens": 50,
+                    "temperature": 0.1,
                     "system_prompt": "You are an expert financial transaction categorizer. Return exactly one category name from the provided list."
                 }
             }
             
-            response = requests.post(url, headers=headers, json=data)
+            response = requests.post(url, headers=headers, json=data, timeout=30)
             
             if response.status_code == 201:
                 prediction = response.json()
@@ -187,10 +199,10 @@ class AITransactionCategorizer:
                 return self.fallback_categorization(subject, body, amount)
                 
         except Exception as e:
-            st.warning(f"AI categorization failed, using fallback: {e}")
+            st.warning(f"AI categorization failed, using fallback: {str(e)}")
             return self.fallback_categorization(subject, body, amount)
     
-    def poll_prediction(self, prediction_id: str, max_attempts: int = 30) -> Optional[str]:
+    def poll_prediction(self, prediction_id: str, max_attempts: int = 15) -> Optional[str]:
         """Poll Replicate API for prediction completion"""
         import time
         
@@ -199,7 +211,7 @@ class AITransactionCategorizer:
         
         for attempt in range(max_attempts):
             try:
-                response = requests.get(url, headers=headers)
+                response = requests.get(url, headers=headers, timeout=10)
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -212,7 +224,7 @@ class AITransactionCategorizer:
                     elif result['status'] == 'failed':
                         return None
                     else:
-                        time.sleep(2)
+                        time.sleep(3)
                         continue
                 else:
                     return None
@@ -273,13 +285,11 @@ class SBIEmailExtractor:
         try:
             client_id = self.config_manager.get_config_value('GMAIL_CLIENT_ID')
             client_secret = self.config_manager.get_config_value('GMAIL_CLIENT_SECRET')
+            redirect_uri = self.config_manager.get_config_value('REDIRECT_URI')
             
-            if not client_id or not client_secret:
-                st.error("Gmail credentials not configured")
-                return None
-            
-            # For Streamlit Cloud, we need to use the app URL as redirect URI
-            redirect_uri = st.secrets.get("REDIRECT_URI", "https://sbi-track.streamlit.app/")
+            if not client_id or not client_secret or not redirect_uri:
+                st.error("Gmail credentials not properly configured")
+                return None, None
             
             client_config = {
                 "web": {
@@ -298,7 +308,11 @@ class SBIEmailExtractor:
                 redirect_uri=redirect_uri
             )
             
-            auth_url, _ = flow.authorization_url(prompt='consent')
+            auth_url, _ = flow.authorization_url(
+                prompt='consent',
+                access_type='offline',
+                include_granted_scopes='true'
+            )
             return auth_url, flow
             
         except Exception as e:
@@ -311,7 +325,7 @@ class SBIEmailExtractor:
             flow.fetch_token(code=auth_code)
             credentials = flow.credentials
             
-            # Store credentials in session state (not in files for cloud deployment)
+            # Store credentials in session state
             st.session_state.credentials = {
                 'token': credentials.token,
                 'refresh_token': credentials.refresh_token,
@@ -454,40 +468,40 @@ class SBIEmailExtractor:
             
         try:
             replicate_token = self.config_manager.get_config_value('REPLICATE_API_TOKEN')
-            url = "https://api.replicate.com/v1/models/openai/gpt-4o-mini/predictions"
+            url = "https://api.replicate.com/v1/models/meta/llama-2-70b-chat/predictions"
             
             headers = {
                 "Authorization": f"Bearer {replicate_token}",
                 "Content-Type": "application/json"
             }
             
-            prompt = f"""
-            Extract the transaction amount from this SBI bank transaction alert email. 
-            
-            Look for patterns like:
-            - "Amount (INR)149.00"
-            - "Amount: 149.00"
-            - "Rs. 149.00"
-            - "₹ 149.00"
-            - "Debited for Rs 149.00"
-            - "Transaction Amount: INR 149.00"
-            
-            Return ONLY the numeric amount with decimal (e.g., "149.00").
-            If multiple amounts are present, return the main transaction amount (not fees or balances).
-            If no amount is found, return "NO_AMOUNT_FOUND".
-            
-            Email content:
-            {email_text}
-            """
+            prompt = f"""Extract the transaction amount from this SBI bank transaction alert email. 
+
+Look for patterns like:
+- "Amount (INR)149.00"
+- "Amount: 149.00"
+- "Rs. 149.00"
+- "₹ 149.00"
+- "Debited for Rs 149.00"
+- "Transaction Amount: INR 149.00"
+
+Return ONLY the numeric amount with decimal (e.g., "149.00").
+If multiple amounts are present, return the main transaction amount (not fees or balances).
+If no amount is found, return "NO_AMOUNT_FOUND".
+
+Email content:
+{email_text}"""
             
             data = {
                 "input": {
                     "prompt": prompt,
+                    "max_new_tokens": 50,
+                    "temperature": 0.1,
                     "system_prompt": "You are an expert at extracting financial amounts from SBI bank transaction alert emails. Return only the numeric value with decimal places."
                 }
             }
             
-            response = requests.post(url, headers=headers, json=data)
+            response = requests.post(url, headers=headers, json=data, timeout=30)
             
             if response.status_code == 201:
                 prediction = response.json()
@@ -499,7 +513,7 @@ class SBIEmailExtractor:
         except Exception as e:
             return None
     
-    def poll_prediction(self, prediction_id: str, max_attempts: int = 30) -> Optional[str]:
+    def poll_prediction(self, prediction_id: str, max_attempts: int = 15) -> Optional[str]:
         """Poll Replicate API for prediction completion"""
         import time
         
@@ -509,7 +523,7 @@ class SBIEmailExtractor:
         
         for attempt in range(max_attempts):
             try:
-                response = requests.get(url, headers=headers)
+                response = requests.get(url, headers=headers, timeout=10)
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -522,7 +536,7 @@ class SBIEmailExtractor:
                     elif result['status'] == 'failed':
                         return None
                     else:
-                        time.sleep(2)
+                        time.sleep(3)
                         continue
                 else:
                     return None
@@ -743,383 +757,278 @@ def main():
         st.info("This app needs access to your Gmail to read SBI transaction emails.")
         
         # Check URL parameters for auth code (for OAuth callback)
-        query_params = st.experimental_get_query_params()
-        auth_code = query_params.get('code', [None])[0]
+        query_params = st.query_params
+        auth_code = query_params.get('code')
         
         if auth_code:
             # Handle OAuth callback
             if 'oauth_flow' in st.session_state:
                 success, user_email = extractor.authenticate_with_code(auth_code, st.session_state.oauth_flow)
                 if success:
-                    st.success(f"✅ Authenticated as: {user_email}")
-                    st.experimental_rerun()
+                    st.success(f"✅ Successfully authenticated as {user_email}")
+                    st.rerun()
                 else:
-                    st.error("❌ Authentication failed")
+                    st.error("Authentication failed. Please try again.")
+                    if 'oauth_flow' in st.session_state:
+                        del st.session_state.oauth_flow
             else:
-                st.error("OAuth flow not found. Please try again.")
-        else:
-            # Try to authenticate from session first
+                st.error("OAuth flow not found. Please restart authentication.")
+        
+        # Try to authenticate from existing session
+        if not st.session_state.authenticated:
             success, user_email = extractor.authenticate_from_session()
-            
             if success:
                 st.session_state.authenticated = True
                 st.session_state.user_email = user_email
-                st.success(f"✅ Authenticated as: {user_email}")
-                st.experimental_rerun()
-            else:
-                # Show authentication button
-                if st.button("🔗 Connect to Gmail", type="primary"):
-                    auth_url, flow = extractor.get_oauth_url()
-                    if auth_url and flow:
-                        st.session_state.oauth_flow = flow
-                        st.markdown(f"[Click here to authenticate with Gmail]({auth_url})")
-                        st.info("After authentication, you'll be redirected back to this app.")
-                    else:
-                        st.error("Failed to create authentication URL")
+                st.rerun()
+        
+        # Show authentication button if not authenticated
+        if not st.session_state.authenticated:
+            if st.button("🔑 Authenticate with Gmail", type="primary"):
+                auth_url, flow = extractor.get_oauth_url()
+                if auth_url and flow:
+                    st.session_state.oauth_flow = flow
+                    st.markdown(f"**Please click the link below to authenticate:**")
+                    st.markdown(f"[🔗 Authenticate with Gmail]({auth_url})")
+                    st.info("After authentication, you'll be redirected back to this app.")
+                else:
+                    st.error("Failed to create authentication URL. Please check your configuration.")
+            st.stop()
     
-    else:
-        # User is authenticated
-        st.sidebar.success(f"✅ Authenticated as: {st.session_state.user_email}")
+    # Main application interface (authenticated users)
+    st.sidebar.header("📊 Controls")
+    
+    # User info
+    if st.session_state.user_email:
+        st.sidebar.success(f"✅ Logged in as: {st.session_state.user_email}")
+    
+    # Logout button
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.authenticated = False
+        st.session_state.user_email = None
+        st.session_state.credentials = None
+        if 'oauth_flow' in st.session_state:
+            del st.session_state.oauth_flow
+        st.rerun()
+    
+    # Email processing controls
+    st.sidebar.subheader("📧 Email Processing")
+    max_emails = st.sidebar.slider("Maximum emails to process", 10, 200, 50, 10)
+    
+    # Date filter
+    st.sidebar.subheader("📅 Date Filter")
+    enable_date_filter = st.sidebar.checkbox("Enable date filter", key="date_filter_enabled")
+    
+    if enable_date_filter:
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            start_date = st.date_input(
+                "Start date",
+                value=datetime.now() - timedelta(days=30),
+                key="date_filter_start"
+            )
+        with col2:
+            end_date = st.date_input(
+                "End date",
+                value=datetime.now(),
+                key="date_filter_end"
+            )
+    
+    # Process emails button
+    if st.sidebar.button("🔍 Analyze Transactions", type="primary"):
+        with st.spinner("Processing emails..."):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            def update_progress(current, total):
+                progress = current / total
+                progress_bar.progress(progress)
+                status_text.text(f"Processing email {current} of {total}...")
+            
+            # Process emails
+            results = extractor.process_emails(max_emails, update_progress)
+            
+            if results:
+                # Convert to DataFrame
+                df = pd.DataFrame(results)
+                
+                # Parse dates
+                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
+                
+                # Apply date filter if enabled
+                df_filtered = apply_date_filter(df)
+                
+                # Store in session state
+                st.session_state.transaction_data = df_filtered
+                
+                status_text.text("✅ Processing complete!")
+                progress_bar.empty()
+                
+                st.success(f"Processed {len(df_filtered)} transactions!")
+            else:
+                st.error("No emails found or processing failed.")
+    
+    # Display results if available
+    if 'transaction_data' in st.session_state and not st.session_state.transaction_data.empty:
+        df = st.session_state.transaction_data
         
-        if st.sidebar.button("🚪 Logout"):
-            st.session_state.authenticated = False
-            st.session_state.user_email = None
-            st.session_state.credentials = None
-            if 'oauth_flow' in st.session_state:
-                del st.session_state.oauth_flow
-            st.experimental_rerun()
+        # Summary metrics
+        st.subheader("📊 Transaction Summary")
         
-        # Main application interface
-        st.sidebar.header("📊 Analysis Options")
+        # Calculate metrics
+        total_transactions = len(df)
+        transactions_with_amounts = df['amount'].notna().sum()
         
-        # Email limit selection
-        max_emails = st.sidebar.slider(
-            "Number of emails to analyze",
-            min_value=10,
-            max_value=200,
-            value=50,
-            step=10,
-            help="Higher numbers will take longer to process"
+        # Convert amounts to numeric for calculations
+        df_numeric = df.copy()
+        df_numeric['amount_numeric'] = pd.to_numeric(
+            df_numeric['amount'].str.replace(',', ''), 
+            errors='coerce'
         )
         
-        # Date filter options
-        st.sidebar.subheader("📅 Date Filter")
-        enable_date_filter = st.sidebar.checkbox("Enable date filter")
+        total_amount = df_numeric['amount_numeric'].sum()
+        avg_amount = df_numeric['amount_numeric'].mean()
         
-        if enable_date_filter:
-            col1, col2 = st.sidebar.columns(2)
-            with col1:
-                start_date = st.date_input(
-                    "From",
-                    value=datetime.now() - timedelta(days=30),
-                    key="date_filter_start"
-                )
-            with col2:
-                end_date = st.date_input(
-                    "To",
-                    value=datetime.now(),
-                    key="date_filter_end"
-                )
+        # Display metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Transactions", total_transactions)
+        
+        with col2:
+            st.metric("With Amounts", transactions_with_amounts)
+        
+        with col3:
+            st.metric("Total Amount", f"₹{total_amount:,.2f}" if not pd.isna(total_amount) else "N/A")
+        
+        with col4:
+            st.metric("Average Amount", f"₹{avg_amount:,.2f}" if not pd.isna(avg_amount) else "N/A")
+        
+        # Category breakdown
+        if extractor.categorizer:
+            st.subheader("📈 Category Breakdown")
+            category_summary = df.groupby('category').agg({
+                'amount_numeric': ['count', 'sum', 'mean']
+            }).round(2)
             
-            st.session_state.date_filter_enabled = True
-            st.session_state.date_filter_start = start_date
-            st.session_state.date_filter_end = end_date
+            category_summary.columns = ['Count', 'Total Amount', 'Average Amount']
+            category_summary = category_summary.sort_values('Total Amount', ascending=False)
+            
+            # Add color coding
+            st.dataframe(
+                category_summary,
+                use_container_width=True,
+                column_config={
+                    "Total Amount": st.column_config.NumberColumn(
+                        "Total Amount",
+                        help="Total amount spent in this category",
+                        format="₹%.2f"
+                    ),
+                    "Average Amount": st.column_config.NumberColumn(
+                        "Average Amount",
+                        help="Average amount per transaction",
+                        format="₹%.2f"
+                    )
+                }
+            )
+        
+        # Visualizations
+        if extractor.categorizer:
+            st.subheader("📊 Visualizations")
+            create_visualizations(df, extractor.categorizer)
+        
+        # Detailed transaction table
+        st.subheader("📋 Transaction Details")
+        
+        # Category filter
+        if extractor.categorizer:
+            categories = ['All'] + extractor.categorizer.get_all_categories()
+            selected_category = st.selectbox("Filter by category:", categories)
+            
+            if selected_category != 'All':
+                df_display = df[df['category'] == selected_category]
+            else:
+                df_display = df
         else:
-            st.session_state.date_filter_enabled = False
+            df_display = df
         
-        # Process emails button
-        if st.button("🔍 Analyze SBI Transactions", type="primary"):
-            with st.spinner("Processing emails... This may take a few minutes."):
-                # Progress bar
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                def update_progress(current, total):
-                    progress = current / total
-                    progress_bar.progress(progress)
-                    status_text.text(f"Processing email {current} of {total}")
-                
-                # Process emails
-                results = extractor.process_emails(
-                    max_emails=max_emails,
-                    progress_callback=update_progress
+        # Display options
+        col1, col2 = st.columns(2)
+        with col1:
+            show_email_preview = st.checkbox("Show email preview", value=False)
+        with col2:
+            show_all_columns = st.checkbox("Show all columns", value=False)
+        
+        # Prepare display DataFrame
+        if show_all_columns:
+            display_cols = df_display.columns.tolist()
+        else:
+            display_cols = ['date', 'subject', 'amount', 'category']
+            if show_email_preview:
+                display_cols.append('email_body_preview')
+        
+        # Format the display
+        df_display_formatted = df_display[display_cols].copy()
+        
+        # Format date column
+        if 'date_parsed' in df_display_formatted.columns:
+            df_display_formatted['date'] = df_display_formatted['date_parsed'].dt.strftime('%Y-%m-%d %H:%M')
+        
+        st.dataframe(
+            df_display_formatted,
+            use_container_width=True,
+            column_config={
+                "amount": st.column_config.TextColumn(
+                    "Amount (₹)",
+                    help="Transaction amount"
+                ),
+                "category": st.column_config.TextColumn(
+                    "Category",
+                    help="AI-categorized transaction type"
+                ),
+                "date": st.column_config.TextColumn(
+                    "Date",
+                    help="Transaction date"
                 )
-                
-                # Clear progress indicators
-                progress_bar.empty()
-                status_text.empty()
-                
-                if results:
-                    st.success(f"✅ Processed {len(results)} emails successfully!")
-                    
-                    # Convert to DataFrame
-                    df = pd.DataFrame(results)
-                    
-                    # Parse dates for filtering
-                    df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
-                    
-                    # Apply date filter if enabled
-                    df = apply_date_filter(df)
-                    
-                    if df.empty:
-                        st.warning("No transactions found in the selected date range.")
-                        st.stop()
-                    
-                    # Store results in session state
-                    st.session_state.transaction_data = df
-                    
-                    # Display summary statistics
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric("Total Transactions", len(df))
-                    
-                    with col2:
-                        valid_amounts = df[df['amount'].notna()]
-                        if not valid_amounts.empty:
-                            total_amount = pd.to_numeric(
-                                valid_amounts['amount'].str.replace(',', ''), 
-                                errors='coerce'
-                            ).sum()
-                            st.metric("Total Amount", f"₹{total_amount:,.2f}")
-                        else:
-                            st.metric("Total Amount", "N/A")
-                    
-                    with col3:
-                        unique_categories = df['category'].nunique()
-                        st.metric("Categories", unique_categories)
-                    
-                    with col4:
-                        if not df.empty and 'date_parsed' in df.columns:
-                            date_range = (df['date_parsed'].max() - df['date_parsed'].min()).days + 1
-                            st.metric("Date Range", f"{date_range} days")
-                        else:
-                            st.metric("Date Range", "N/A")
-                    
-                    # Tabs for different views
-                    tab1, tab2, tab3, tab4 = st.tabs(["📊 Visualizations", "📋 Transaction Details", "🔍 Search & Filter", "📈 Advanced Analytics"])
-                    
-                    with tab1:
-                        create_visualizations(df, extractor.categorizer)
-                    
-                    with tab2:
-                        st.subheader("📋 Transaction Details")
-                        
-                        # Display options
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            show_email_preview = st.checkbox("Show email preview", value=False)
-                        with col2:
-                            show_debug_info = st.checkbox("Show extraction details", value=False)
-                        
-                        # Prepare display dataframe
-                        display_df = df.copy()
-                        
-                        # Format columns for display
-                        display_columns = ['date', 'subject', 'amount', 'category']
-                        if show_email_preview:
-                            display_columns.append('email_body_preview')
-                        if show_debug_info:
-                            display_columns.extend(['ai_extracted_amount', 'regex_extracted_amounts'])
-                        
-                        # Rename columns for better display
-                        column_mapping = {
-                            'date': 'Date',
-                            'subject': 'Subject',
-                            'amount': 'Amount (₹)',
-                            'category': 'Category',
-                            'email_body_preview': 'Email Preview',
-                            'ai_extracted_amount': 'AI Amount',
-                            'regex_extracted_amounts': 'Regex Amounts'
-                        }
-                        
-                        display_df = display_df[display_columns].rename(columns=column_mapping)
-                        
-                        # Style the dataframe
-                        if extractor.categorizer:
-                            def style_category(val):
-                                color = extractor.categorizer.get_category_color(val)
-                                return f'background-color: {color}; color: white; font-weight: bold;'
-                            
-                            if 'Category' in display_df.columns:
-                                styled_df = display_df.style.applymap(
-                                    style_category, 
-                                    subset=['Category']
-                                )
-                                st.dataframe(styled_df, use_container_width=True)
-                            else:
-                                st.dataframe(display_df, use_container_width=True)
-                        else:
-                            st.dataframe(display_df, use_container_width=True)
-                        
-                        # Download button
-                        csv = df.to_csv(index=False)
-                        st.download_button(
-                            label="📥 Download CSV",
-                            data=csv,
-                            file_name=f"sbi_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv"
-                        )
-                    
-                    with tab3:
-                        st.subheader("🔍 Search & Filter Transactions")
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            # Search functionality
-                            search_term = st.text_input("🔍 Search in subject/email content", "")
-                            
-                            # Category filter
-                            if extractor.categorizer:
-                                available_categories = df['category'].unique().tolist()
-                                selected_categories = st.multiselect(
-                                    "Filter by categories",
-                                    options=available_categories,
-                                    default=available_categories
-                                )
-                            else:
-                                selected_categories = df['category'].unique().tolist()
-                        
-                        with col2:
-                            # Amount range filter
-                            valid_amounts = pd.to_numeric(
-                                df[df['amount'].notna()]['amount'].str.replace(',', ''), 
-                                errors='coerce'
-                            ).dropna()
-                            
-                            if not valid_amounts.empty:
-                                min_amount = float(valid_amounts.min())
-                                max_amount = float(valid_amounts.max())
-                                
-                                amount_range = st.slider(
-                                    "Amount range (₹)",
-                                    min_value=min_amount,
-                                    max_value=max_amount,
-                                    value=(min_amount, max_amount),
-                                    step=1.0
-                                )
-                            else:
-                                amount_range = (0, 0)
-                        
-                        # Apply filters
-                        filtered_df = df.copy()
-                        
-                        # Apply search filter
-                        if search_term:
-                            search_mask = (
-                                filtered_df['subject'].str.contains(search_term, case=False, na=False) |
-                                filtered_df['email_body_preview'].str.contains(search_term, case=False, na=False)
-                            )
-                            filtered_df = filtered_df[search_mask]
-                        
-                        # Apply category filter
-                        if selected_categories:
-                            filtered_df = filtered_df[filtered_df['category'].isin(selected_categories)]
-                        
-                        # Apply amount filter
-                        if not valid_amounts.empty and amount_range != (0, 0):
-                            filtered_df['amount_numeric'] = pd.to_numeric(
-                                filtered_df['amount'].str.replace(',', ''), 
-                                errors='coerce'
-                            )
-                            amount_mask = (
-                                (filtered_df['amount_numeric'] >= amount_range[0]) & 
-                                (filtered_df['amount_numeric'] <= amount_range[1])
-                            )
-                            filtered_df = filtered_df[amount_mask]
-                        
-                        st.write(f"**Found {len(filtered_df)} transactions matching your criteria**")
-                        
-                        if not filtered_df.empty:
-                            # Display filtered results
-                            display_columns = ['date', 'subject', 'amount', 'category', 'email_body_preview']
-                            display_df = filtered_df[display_columns].rename(columns={
-                                'date': 'Date',
-                                'subject': 'Subject', 
-                                'amount': 'Amount (₹)',
-                                'category': 'Category',
-                                'email_body_preview': 'Email Preview'
-                            })
-                            
-                            st.dataframe(display_df, use_container_width=True)
-                    
-                    with tab4:
-                        st.subheader("📈 Advanced Analytics")
-                        
-                        # Convert amounts to numeric for analysis
-                        df_analysis = df.copy()
-                        df_analysis['amount_numeric'] = pd.to_numeric(
-                            df_analysis['amount'].str.replace(',', ''), 
-                            errors='coerce'
-                        )
-                        df_analysis = df_analysis.dropna(subset=['amount_numeric'])
-                        
-                        if not df_analysis.empty:
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.subheader("💰 Spending Statistics")
-                                stats_df = pd.DataFrame({
-                                    'Metric': ['Mean', 'Median', 'Std Dev', 'Min', 'Max'],
-                                    'Amount (₹)': [
-                                        f"{df_analysis['amount_numeric'].mean():.2f}",
-                                        f"{df_analysis['amount_numeric'].median():.2f}",
-                                        f"{df_analysis['amount_numeric'].std():.2f}",
-                                        f"{df_analysis['amount_numeric'].min():.2f}",
-                                        f"{df_analysis['amount_numeric'].max():.2f}"
-                                    ]
-                                })
-                                st.dataframe(stats_df, use_container_width=True)
-                                
-                                # Top spending days
-                                if 'date_parsed' in df_analysis.columns:
-                                    st.subheader("📅 Top Spending Days")
-                                    daily_spending = df_analysis.groupby(
-                                        df_analysis['date_parsed'].dt.date
-                                    )['amount_numeric'].sum().sort_values(ascending=False).head(10)
-                                    
-                                    top_days_df = pd.DataFrame({
-                                        'Date': daily_spending.index,
-                                        'Total Amount (₹)': [f"{amt:.2f}" for amt in daily_spending.values]
-                                    })
-                                    st.dataframe(top_days_df, use_container_width=True)
-                            
-                            with col2:
-                                # Category insights
-                                st.subheader("🏷️ Category Insights")
-                                category_stats = df_analysis.groupby('category')['amount_numeric'].agg([
-                                    'count', 'sum', 'mean', 'std'
-                                ]).round(2)
-                                category_stats.columns = ['Count', 'Total', 'Average', 'Std Dev']
-                                category_stats = category_stats.sort_values('Total', ascending=False)
-                                st.dataframe(category_stats, use_container_width=True)
-                                
-                                # Frequency analysis
-                                st.subheader("📊 Transaction Frequency")
-                                if 'date_parsed' in df_analysis.columns:
-                                    df_analysis['day_of_week'] = df_analysis['date_parsed'].dt.day_name()
-                                    day_counts = df_analysis['day_of_week'].value_counts()
-                                    
-                                    freq_df = pd.DataFrame({
-                                        'Day': day_counts.index,
-                                        'Transactions': day_counts.values
-                                    })
-                                    st.dataframe(freq_df, use_container_width=True)
-                        else:
-                            st.warning("No valid transaction data available for advanced analytics.")
-                
-                else:
-                    st.error("❌ No SBI transaction emails found. Please check:")
-                    st.markdown("""
-                    - Make sure you have SBI transaction alert emails in your Gmail
-                    - Check if the emails are from: `donotreply.sbiatm@alerts.sbi.co.in`
-                    - Try increasing the number of emails to analyze
-                    """)
+            }
+        )
         
-        # Show cached data if available
-        if 'transaction_data' in st.session_state and not st.session_state.transaction_data.empty:
-            st.info("💡 Previous analysis results are still available. Click 'Analyze SBI Transactions' to refresh.")
+        # Export options
+        st.subheader("💾 Export Data")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # CSV export
+            csv_data = df_display.to_csv(index=False)
+            st.download_button(
+                label="📄 Download as CSV",
+                data=csv_data,
+                file_name=f"sbi_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            # JSON export
+            json_data = df_display.to_json(orient='records', date_format='iso')
+            st.download_button(
+                label="📄 Download as JSON",
+                data=json_data,
+                file_name=f"sbi_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
+    
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style='text-align: center; color: #666; font-size: 0.8em;'>
+        Made with ❤️ using Streamlit | Powered by AI | 
+        <a href='https://github.com' target='_blank'>View Source</a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 if __name__ == "__main__":
     main()
