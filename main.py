@@ -19,6 +19,7 @@ from collections import Counter
 import os
 from dotenv import load_dotenv
 import dateutil.parser
+import urllib.parse
 
 
 # Load environment variables from .secret file
@@ -50,7 +51,8 @@ class ConfigManager:
         config = {
             'GMAIL_CLIENT_ID': os.getenv('GMAIL_CLIENT_ID'),
             'GMAIL_CLIENT_SECRET': os.getenv('GMAIL_CLIENT_SECRET'),
-            'REPLICATE_API_TOKEN': os.getenv('REPLICATE_API_TOKEN')
+            'REPLICATE_API_TOKEN': os.getenv('REPLICATE_API_TOKEN'),
+            'REDIRECT_URI': os.getenv('REDIRECT_URI', 'https://sbi-track.streamlit.app/')
         }
         return config
     
@@ -105,7 +107,15 @@ class ConfigManager:
                 GMAIL_CLIENT_ID=your_client_id_here
                 GMAIL_CLIENT_SECRET=your_client_secret_here
                 REPLICATE_API_TOKEN=your_replicate_token_here
+                REDIRECT_URI=https://your-app.streamlit.app/
                 ```
+                
+                **For Google OAuth Setup:**
+                1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+                2. Create a new project or select existing
+                3. Enable Gmail API
+                4. Create OAuth2 credentials
+                5. Add your Streamlit app URL to authorized redirect URIs
                 """)
 
 class AITransactionCategorizer:
@@ -116,426 +126,21 @@ class AITransactionCategorizer:
         self.categories = {
             # Banking & Finance
             'ATM Withdrawal': '#FF6B6B',
-            'Transfer': '#A8E6CF',
-            'Investment': '#FFB347',
-            'Insurance': '#81ECEC',
-            'Banking & Finance': '#00CEC9',
-            'Cryptocurrency': '#F7931A',
-            'Loan Payment': '#8E44AD',
-            'Credit Card': '#E74C3C',
-            
-            # Shopping & Commerce
-            'Online Shopping': '#4ECDC4',
-            'Groceries': '#FD79A8',
-            'Fashion & Beauty': '#FDCB6E',
-            'Electronics': '#3498DB',
-            'Home & Garden': '#27AE60',
-            'Books & Stationery': '#8B4513',
-            
-            # Fashion & Sportswear
-            'Nike': '#000000',
-            'Adidas': '#000000',
-            'Puma': '#000000',
-            'Reebok': '#CF002E',
-            'Under Armour': '#1D1D1B',
-            'New Balance': '#ED1C24',
-            'Converse': '#000000',
-            'Vans': '#000000',
-            'H&M': '#E50000',
-            'Zara': '#000000',
-            'Uniqlo': '#FF0000',
-            'Forever 21': '#000000',
-            
-            # Food & Dining
-            'Food & Dining': '#45B7D1',
-            'Zomato': '#E23744',
-            'Swiggy': '#FC8019',
-            'Uber Eats': '#5FB709',
-            'Dominos': '#0078D4',
-            'McDonalds': '#FFC72C',
-            'KFC': '#F40027',
-            'Pizza Hut': '#00A160',
-            'Burger King': '#D62300',
-            'Subway': '#009639',
-            'Starbucks': '#00704A',
-            'Dunkin': '#FF6600',
-            
-            # Transportation
-            'Transportation': '#96CEB4',
-            'Uber': '#000000',
-            'Ola': '#FFE234',
-            'Rapido': '#FFCC02',
-            'Metro': '#0066CC',
-            'IRCTC': '#FF6B35',
-            'Fuel & Petrol': '#FF4757',
-            'Car Rental': '#2ECC71',
-            'Parking': '#95A5A6',
-            
-            # Web Hosting & Cloud Services
-            'Hostinger': '#673DE6',
-            'GoDaddy': '#1BDBDB',
-            'Bluehost': '#3E5C99',
-            'SiteGround': '#F68B1F',
-            'DigitalOcean': '#0080FF',
-            'AWS': '#FF9900',
-            'Google Cloud': '#4285F4',
-            'Microsoft Azure': '#0078D4',
-            'Cloudflare': '#F38020',
-            'Namecheap': '#DE3910',
-            'Domain Registration': '#8E44AD',
-            
-            # Software & SaaS
-            'Microsoft Office': '#0078D4',
-            'Adobe Creative Cloud': '#FF0000',
-            'Canva': '#00C4CC',
-            'Figma': '#F24E1E',
-            'Slack': '#4A154B',
-            'Zoom': '#2D8CFF',
-            'GitHub': '#181717',
-            'Dropbox': '#0061FF',
-            'Google Workspace': '#4285F4',
-            'Notion': '#000000',
-            'Trello': '#0079BF',
-            'Asana': '#273347',
-            
-            # Streaming Services
-            'Netflix': '#E50914',
-            'Amazon Prime': '#FF9900',
-            'Disney+ Hotstar': '#113CCF',
-            'Zee5': '#6C2C91',
-            'Voot': '#FF6900',
-            'SonyLIV': '#000000',
-            'ALTBalaji': '#FF0066',
-            'MX Player': '#FF6B00',
-            'YouTube Premium': '#FF0000',
-            'Viki': '#00D4AA',
-            'Hulu': '#1CE783',
-            'HBO Max': '#8A2BE2',
-            
-            # Music Streaming
-            'Spotify': '#1DB954',
-            'Apple Music': '#FA57C1',
-            'YouTube Music': '#FF0000',
-            'Amazon Music': '#FF9900',
-            'Gaana': '#FF6600',
-            'JioSaavn': '#02AAB0',
-            'Wynk Music': '#FF0066',
-            'Tidal': '#000000',
-            'Deezer': '#FEAA2D',
-            
-            # Gaming
-            'Steam': '#1B2838',
-            'Epic Games': '#313131',
-            'PlayStation': '#003087',
-            'Xbox': '#107C10',
-            'Google Play Games': '#01875F',
-            'PUBG': '#F99E1A',
-            'Free Fire': '#FF6B35',
-            'Call of Duty': '#000000',
-            'Valorant': '#FF4655',
-            'Fortnite': '#7B68EE',
-            'Roblox': '#00A2FF',
-            'Minecraft': '#62B47A',
-            
-            # E-commerce Platforms
-            'Amazon': '#FF9900',
-            'Flipkart': '#047BD6',
-            'eBay': '#0064D3',
-            'Myntra': '#FF3F6C',
-            'Nykaa': '#FC2779',
-            'BigBasket': '#84C225',
-            'Grofers': '#00AC4F',
-            'Paytm Mall': '#00BAF2',
-            
-            # Social Media & Communication (Expanded)
-            'WhatsApp Business': '#25D366',
-            'Telegram Premium': '#0088CC',
-            'Discord Nitro': '#5865F2',
-            'Twitter Blue': '#1DA1F2',
-            'LinkedIn Premium': '#0077B5',
-            'Instagram': '#E4405F',
-            'Facebook': '#1877F2',
-            'YouTube Premium': '#FF0000',
-            'TikTok': '#000000',
-            'Snapchat+': '#FFFC00',
-            'Pinterest Business': '#BD081C',
-            'Reddit Premium': '#FF4500',
-            'Clubhouse': '#F1C40F',
-            'Signal': '#3A76F0',
-            'Viber': '#7360F2',
-            'Skype': '#00AFF0',
-            'Google Meet': '#00AC47',
-            'Microsoft Teams': '#6264A7',
-            'GoToMeeting': '#FF6900',
-            'WebEx': '#00BCF2',
-            'Twilio': '#F22F46',
-            'Mailchimp': '#FFE01B',
-            'Constant Contact': '#1F5582',
-            'ConvertKit': '#FB6970',
-            'AWeber': '#2F7BBF',
-            'GetResponse': '#00BAFF',
-            'Campaign Monitor': '#509E2F',
-            
-            # Fitness & Health (Expanded)
-            'Gym Membership': '#E74C3C',
-            'Yoga Classes': '#9B59B6',
-            'Personal Trainer': '#27AE60',
-            'Health Insurance': '#3498DB',
-            'Medical': '#E67E22',
-            'Pharmacy': '#2ECC71',
-            'Fitness Apps': '#E91E63',
-            'Planet Fitness': '#7B2CBF',
-            'LA Fitness': '#FF6B35',
-            'Gold\'s Gym': '#FFD700',
-            '24 Hour Fitness': '#E74C3C',
-            'Anytime Fitness': '#9B2C47',
-            'CrossFit': '#FF6B35',
-            'Orange Theory': '#FF6900',
-            'SoulCycle': '#FFFF00',
-            'Peloton': '#000000',
-            'MyFitnessPal': '#0066FF',
-            'Strava': '#FC4C02',
-            'Fitbit': '#00B0B9',
-            'Garmin': '#007CC3',
-            'Apple Fitness+': '#FA57C1',
-            'Nike Training Club': '#000000',
-            'Headspace': '#FF6B35',
-            'Calm': '#7BC4C4',
-            'Meditation Apps': '#9B59B6',
-            'Teladoc': '#613896',
-            'MDLive': '#00A651',
-            'CVS Health': '#CC0000',
-            'Walgreens': '#E31837',
-            'Rite Aid': '#0066CC',
-            'Dental Care': '#00CED1',
-            'Vision Care': '#4169E1',
-            'Mental Health': '#FF69B4',
-            'Therapy Sessions': '#DA70D6',
-            'Nutritionist': '#32CD32',
-            'Dietician': '#9ACD32',
-            
-            # Education & Learning
-            'Coursera': '#0056D3',
-            'Udemy': '#A435F0',
-            'Skillshare': '#00FF88',
-            'LinkedIn Learning': '#0077B5',
-            'Pluralsight': '#F15B2A',
-            'MasterClass': '#000000',
-            'Khan Academy': '#14BF96',
-            'Duolingo': '#58CC02',
-            'BYJU\'S': '#8E44AD',
-            'Unacademy': '#08BD80',
-            
-            # Utilities & Bills (Expanded)
-            'Electricity': '#F39C12',
-            'Water': '#3498DB',
-            'Gas': '#E67E22',
-            'Internet': '#9B59B6',
-            'Mobile Bill': '#2ECC71',
-            'DTH/Cable': '#E74C3C',
-            'Maintenance': '#95A5A6',
-            'Verizon': '#CD040B',
-            'AT&T': '#00A8E6',
-            'T-Mobile': '#E20074',
-            'Sprint': '#FFCC00',
-            'Comcast Xfinity': '#1F5582',
-            'Spectrum': '#246FDB',
-            'Cox Communications': '#FF6900',
-            'Optimum': '#FF6B35',
-            'Dish Network': '#FF6900',
-            'DIRECTV': '#FF6900',
-            'Sling TV': '#FF6900',
-            'YouTube TV': '#FF0000',
-            'Hulu + Live TV': '#1CE783',
-            'FuboTV': '#00A651',
-            'Philo': '#6B46C1',
-            'ConEd': '#0066CC',
-            'PG&E': '#004B87',
-            'Southern California Edison': '#0066CC',
-            'Duke Energy': '#00529B',
-            'Florida Power & Light': '#FF6900',
-            'Georgia Power': '#FF6900',
-            'Texas Gas Service': '#E67E22',
-            'Waste Management': '#00A651',
-            'Republic Services': '#0066CC',
-            'Recycling Services': '#22C55E',
-            'Home Security': '#DC2626',
-            'ADT': '#FF0000',
-            'Vivint': '#FF6900',
-            'SimpliSafe': '#FF6B35',
-            'Ring': '#FF6900',
-            'Nest': '#0F9D58',
-            'Alarm.com': '#FF6900',
-            'Renters Insurance': '#8B5CF6',
-            'Home Insurance': '#3B82F6',
-            'Property Tax': '#6B7280',
-            'HOA Fees': '#F59E0B',
-            'Condo Fees': '#EF4444',
-            
-            # Travel & Accommodation (Expanded)
-            'Flight Booking': '#3498DB',
-            'Hotel Booking': '#E67E22',
-            'Airbnb': '#FF5A5F',
-            'MakeMyTrip': '#FF4F00',
-            'Booking.com': '#003580',
-            'OYO': '#EE2A24',
-            'Travel Insurance': '#27AE60',
-            'Expedia': '#FFC72C',
-            'Priceline': '#FF6900',
-            'Kayak': '#FF6900',
-            'Orbitz': '#FF6900',
-            'Travelocity': '#1E3A8A',
-            'Hotels.com': '#C8102E',
-            'Hilton': '#0F4C99',
-            'Marriott': '#B8860B',
-            'Hyatt': '#8B0000',
-            'IHG': '#006937',
-            'Choice Hotels': '#FF6900',
-            'Best Western': '#B8860B',
-            'Wyndham': '#0066CC',
-            'Radisson': '#FF6900',
-            'Accor': '#FF6900',
-            'VRBO': '#FF6900',
-            'HomeAway': '#FF6900',
-            'Hostelworld': '#FF6900',
-            'Agoda': '#FF6900',
-            'Trivago': '#FF6900',
-            'Skyscanner': '#FF6900',
-            'Google Flights': '#4285F4',
-            'American Airlines': '#C8102E',
-            'Delta': '#002F5F',
-            'United': '#0033A0',
-            'Southwest': '#FF6900',
-            'JetBlue': '#0033A0',
-            'Alaska Airlines': '#01426A',
-            'Spirit': '#FFFF00',
-            'Frontier': '#00A651',
-            'British Airways': '#075AAA',
-            'Lufthansa': '#05164D',
-            'Air France': '#002F5F',
-            'Emirates': '#C8102E',
-            'Qatar Airways': '#8B0000',
-            'Singapore Airlines': '#003366',
-            'Cathay Pacific': '#00A651',
-            'Hertz': '#FFCC00',
-            'Avis': '#C8102E',
-            'Enterprise': '#00A651',
-            'Budget': '#FF6900',
-            'National': '#00A651',
-            'Alamo': '#FF6900',
-            'Thrifty': '#0066CC',
-            'Dollar': '#00A651',
-            'Zipcar': '#8FBC8F',
-            'Turo': '#FF6900',
-            'Getaround': '#FF6900',
-            'Car2Go': '#00BFFF',
-            'Cruise Lines': '#0066CC',
-            'Royal Caribbean': '#0066CC',
-            'Carnival': '#C8102E',
-            'Norwegian': '#0066CC',
-            'Princess': '#8B0000',
-            'Celebrity': '#FF6900',
-            'MSC': '#0066CC',
-            'Disney Cruise': '#113CCF',
-            'Train Booking': '#FF6900',
-            'Amtrak': '#FF6900',
-            'Eurostar': '#0066CC',
-            'Eurail': '#00A651',
-            'Bus Booking': '#FF6900',
-            'Greyhound': '#0066CC',
-            'Megabus': '#0066CC',
-            'FlixBus': '#00A651',
-            'Travel Gear': '#8B4513',
-            'Luggage': '#654321',
-            'Travel Accessories': '#A0522D',
-            'Passport Services': '#4B0082',
-            'Visa Services': '#8B0000',
-            'Currency Exchange': '#FFD700',
-            'Travel Guides': '#FF6347',
-            'Travel Photography': '#FF1493',
-            
-            # Professional Services (Expanded)
-            'Legal Services': '#34495E',
-            'Accounting': '#16A085',
-            'Consulting': '#8E44AD',
-            'Marketing': '#E74C3C',
-            'Design Services': '#F39C12',
-            'LegalZoom': '#1E3A8A',
-            'Rocket Lawyer': '#DC2626',
-            'Upwork': '#14A800',
-            'Fiverr': '#1DBF73',
-            'Freelancer': '#0E7DC2',
-            '99designs': '#FF6900',
-            'Dribbble': '#EA4C89',
-            'Behance': '#1769FF',
-            'QuickBooks': '#2CA01C',
-            'FreshBooks': '#0E7DC2',
-            'Xero': '#13B5EA',
-            'TurboTax': '#CD2C2E',
-            'H&R Block': '#00A651',
-            'TaxAct': '#FF6B35',
-            'CPA Services': '#16A085',
-            'Notary Services': '#6B46C1',
-            'Business Registration': '#059669',
-            'Trademark Services': '#7C3AED',
-            'Patent Services': '#1D4ED8',
-            
-            # Cryptocurrency & Fintech (Expanded)
-            'Coinbase': '#0052FF',
-            'Binance': '#F3BA2F',
-            'PayPal': '#00457C',
-            'Stripe': '#635BFF',
-            'Razorpay': '#528FF0',
-            'Paytm': '#00BAF2',
-            'PhonePe': '#5F259F',
-            'Google Pay': '#34A853',
-            'Kraken': '#5741D9',
-            'Gemini': '#00DCFA',
-            'FTX': '#5FCADE',
-            'Crypto.com': '#003D7A',
-            'KuCoin': '#24AE8F',
-            'Huobi': '#2E7CFF',
-            'OKX': '#000000',
-            'Bitfinex': '#2B6F2B',
-            'Bybit': '#F7A600',
-            'Gate.io': '#64748B',
-            'Robinhood': '#00C805',
-            'Webull': '#1348CC',
-            'E*TRADE': '#00529B',
-            'TD Ameritrade': '#00A651',
-            'Charles Schwab': '#00A3E0',
-            'Fidelity': '#00703C',
-            'Vanguard': '#B91C1C',
-            'Wealthfront': '#5A67D8',
-            'Betterment': '#2E5BFF',
-            'Acorns': '#7CB342',
-            'Stash': '#30D158',
-            'M1 Finance': '#3B82F6',
-            'SoFi': '#00314E',
-            'Chime': '#00A651',
-            'Ally Bank': '#A855F7',
-            'Capital One': '#004C9B',
-            'Venmo': '#008CFF',
-            'Zelle': '#6B1F7B',
-            'Cash App': '#00D632',
-            'Apple Pay': '#007AFF',
-            'Samsung Pay': '#1F4788',
-            'Wise (TransferWise)': '#37517E',
-            'Remitly': '#5A67D8',
-            'Western Union': '#FFCC00',
-            'MoneyGram': '#005BAA',
-            
-            # General Categories
-            'Utilities': '#FFEAA7',
-            'Entertainment': '#E17055',
-            'Healthcare': '#F8BBD9',
-            'Travel': '#74B9FF',
-            'Education': '#6C5CE7',
-            'Work & Professional': '#FF8C42',
-            'Subscriptions': '#E17055',
-            'Charity & Donations': '#27AE60',
-            'Pet Care': '#FF6B9D',
-            'Other': '#D3D3D3'
+            'Bank Transfer': '#4ECDC4',
+            'Online Purchase': '#45B7D1',
+            'Food & Dining': '#96CEB4',
+            'Transportation': '#FFEAA7',
+            'Shopping': '#DDA0DD',
+            'Entertainment': '#98D8C8',
+            'Bills & Utilities': '#F7DC6F',
+            'Healthcare': '#BB8FCE',
+            'Education': '#85C1E9',
+            'Travel': '#F8C471',
+            'Subscription': '#82E0AA',
+            'Investment': '#F1948A',
+            'Insurance': '#AED6F1',
+            'Charity': '#A9DFBF',
+            'Other': '#D5D8DC'
         }       
     
     def categorize_transaction_with_ai(self, subject: str, body: str, amount: str) -> str:
@@ -572,30 +177,28 @@ class AITransactionCategorizer:
 
                 **Financial Services:**
                 - ATM Withdrawal: Cash withdrawals, ATM fees
-                - Transfer: UPI, NEFT, RTGS, P2P transfers, money sent to individuals
-                - Investment: Mutual funds, SIPs, stocks, trading platforms, portfolio management
-                - Insurance: All insurance premiums and policy payments
-                - Banking & Finance: Bank fees, loan EMIs, credit card payments, financial services
-                - Cryptocurrency: Bitcoin, Ethereum, crypto exchanges, blockchain transactions
+                - Bank Transfer: UPI, NEFT, RTGS, IMPS, fund transfers
+                - Investment: Mutual funds, stocks, bonds, SIP
+                - Insurance: Policy payments, premiums
 
-                **Commerce & Shopping:**
-                - Online Shopping: E-commerce platforms, online purchases, marketplace transactions
-                - Groceries: Food items, supermarkets, daily essentials, household supplies
-                - Fashion & Beauty: Clothing, accessories, cosmetics, jewelry, personal care
-                - Electronics: Gadgets, phones, computers, tech accessories, appliances
-
-                **Services & Subscriptions:**
-                - Food & Dining: Restaurants, cafes, food delivery, dining out (NOT groceries)
-                - Transportation: Ride-sharing, fuel, public transport, vehicle services, parking
-                - Utilities: Bills for electricity, water, gas, internet, mobile, DTH/cable
-                - Entertainment: Movies, streaming services, games, concerts, recreational activities
-                - Healthcare: Medical consultations, pharmacy, health services, medical equipment
-                - Education: Courses, educational platforms, books, learning materials, tuition
-
-                **Lifestyle & Professional:**
-                - Travel: Flights, hotels, travel bookings, vacation expenses
-                - Work & Professional: Software tools, cloud services, business expenses, coworking
-                - Subscriptions: Recurring services not covered in other specific categories
+                **Shopping & Commerce:**
+                - Online Purchase: E-commerce, online shopping
+                - Shopping: Retail stores, markets, general shopping
+                
+                **Daily Expenses:**
+                - Food & Dining: Restaurants, food delivery, groceries
+                - Transportation: Fuel, public transport, ride-sharing
+                - Bills & Utilities: Electricity, water, phone, internet
+                
+                **Lifestyle:**
+                - Entertainment: Movies, games, streaming services
+                - Travel: Hotels, flights, vacation expenses
+                - Healthcare: Medical bills, pharmacy, hospitals
+                - Education: Fees, courses, books
+                
+                **Services:**
+                - Subscription: Monthly/yearly service subscriptions
+                - Charity: Donations, NGO contributions
 
                 **Fallback:**
                 - Other: Only if transaction doesn't clearly fit any specific category above
@@ -679,234 +282,31 @@ class AITransactionCategorizer:
         
         # Simple keyword-based fallback
         fallback_rules = {
-    # Banking & Finance
-    'ATM Withdrawal': ['atm', 'withdrawal', 'cash', 'withdraw'],
-    'Transfer': ['transfer', 'upi', 'neft', 'rtgs', 'imps', 'bank transfer', 'fund transfer'],
-    'Investment': ['mutual fund', 'sip', 'investment', 'equity', 'stocks', 'portfolio', 'trading'],
-    'Insurance': ['insurance', 'premium', 'policy', 'lic', 'health insurance', 'life insurance'],
-    'Banking & Finance': ['bank', 'banking', 'finance', 'loan', 'emi', 'credit'],
-    'Cryptocurrency': ['crypto', 'bitcoin', 'ethereum', 'digital currency', 'blockchain'],
-    'Loan Payment': ['loan', 'emi', 'installment', 'repayment', 'mortgage'],
-    'Credit Card': ['credit card', 'cc payment', 'card payment', 'outstanding'],
-    
-    # Shopping & Commerce
-    'Online Shopping': ['amazon', 'flipkart', 'myntra', 'shopping', 'online store', 'ecommerce', 'purchase'],
-    'Groceries': ['grocery', 'supermarket', 'vegetables', 'fruits', 'milk', 'bread', 'food items'],
-    'Fashion & Beauty': ['fashion', 'clothes', 'dress', 'shoes', 'beauty', 'cosmetics', 'makeup'],
-    'Electronics': ['mobile', 'laptop', 'computer', 'electronics', 'gadgets', 'phone', 'tablet'],
-    'Home & Garden': ['furniture', 'home decor', 'garden', 'appliances', 'kitchen', 'bedroom'],
-    'Books & Stationery': ['books', 'stationery', 'pen', 'notebook', 'magazine', 'newspaper'],
-    
-    # Fashion & Sportswear
-    'Nike': ['nike'],
-    'Adidas': ['adidas'],
-    'Puma': ['puma'],
-    'H&M': ['h&m', 'hm'],
-    'Zara': ['zara'],
-    'Uniqlo': ['uniqlo'],
-    
-    # Food & Dining
-    'Food & Dining': ['restaurant', 'food', 'dining', 'meal', 'lunch', 'dinner', 'cafe', 'bistro'],
-    'Zomato': ['zomato'],
-    'Swiggy': ['swiggy'],
-    'Uber Eats': ['uber eats', 'ubereats'],
-    'McDonalds': ['mcdonalds', 'mcd', 'mc donalds'],
-    'KFC': ['kfc', 'kentucky'],
-    'Pizza Hut': ['pizza hut', 'pizzahut'],
-    'Burger King': ['burger king', 'bk'],
-    'Subway': ['subway'],
-    'Starbucks': ['starbucks'],
-    'Dunkin': ['dunkin', 'dunkin donuts'],
-    
-    # Transportation
-    'Transportation': ['transport', 'travel', 'commute'],
-    'Uber': ['uber'],
-    'Ola': ['ola'],
-    'Rapido': ['rapido'],
-    'Metro': ['metro', 'subway', 'train'],
-    'IRCTC': ['irctc', 'railway', 'train booking'],
-    'Fuel & Petrol': ['petrol', 'fuel', 'gas station', 'diesel', 'cng'],
-    'Car Rental': ['car rental', 'rent a car', 'vehicle rental'],
-    'Parking': ['parking', 'park fee'],
-    
-    # Web Hosting & Cloud Services
-    'Hostinger': ['hostinger'],
-    'GoDaddy': ['godaddy'],
-    'AWS': ['aws', 'amazon web services'],
-    'Google Cloud': ['google cloud', 'gcp'],
-    'Microsoft Azure': ['azure', 'microsoft azure'],
-    'Domain Registration': ['domain', 'dns', 'hosting'],
-    
-    # Software & SaaS
-    'Microsoft Office': ['microsoft office', 'office 365', 'ms office'],
-    'Adobe Creative Cloud': ['adobe', 'photoshop', 'creative cloud'],
-    'Canva': ['canva'],
-    'Figma': ['figma'],
-    'Slack': ['slack'],
-    'Zoom': ['zoom'],
-    'GitHub': ['github'],
-    'Dropbox': ['dropbox'],
-    'Google Workspace': ['google workspace', 'g suite'],
-    'Notion': ['notion'],
-    
-    # Streaming Services
-    'Netflix': ['netflix'],
-    'Amazon Prime': ['amazon prime', 'prime video'],
-    'Disney+ Hotstar': ['disney', 'hotstar', 'disney+'],
-    'YouTube Premium': ['youtube premium', 'youtube'],
-    'Hulu': ['hulu'],
-    'HBO Max': ['hbo', 'hbo max'],
-    
-    # Music Streaming
-    'Spotify': ['spotify'],
-    'Apple Music': ['apple music'],
-    'YouTube Music': ['youtube music'],
-    'Amazon Music': ['amazon music'],
-    'Gaana': ['gaana'],
-    'JioSaavn': ['jiosaavn', 'saavn'],
-    
-    # Gaming
-    'Steam': ['steam'],
-    'Epic Games': ['epic games', 'epic'],
-    'PlayStation': ['playstation', 'ps4', 'ps5', 'sony'],
-    'Xbox': ['xbox', 'microsoft gaming'],
-    'PUBG': ['pubg', 'battlegrounds'],
-    'Free Fire': ['free fire', 'freefire'],
-    'Valorant': ['valorant'],
-    'Fortnite': ['fortnite'],
-    
-    # Social Media & Communication
-    'WhatsApp Business': ['whatsapp business'],
-    'Telegram Premium': ['telegram'],
-    'Discord Nitro': ['discord'],
-    'Twitter Blue': ['twitter', 'x premium'],
-    'LinkedIn Premium': ['linkedin'],
-    'Instagram': ['instagram'],
-    'Facebook': ['facebook', 'meta'],
-    'TikTok': ['tiktok'],
-    'Snapchat+': ['snapchat'],
-    'Pinterest Business': ['pinterest'],
-    'Mailchimp': ['mailchimp'],
-    
-    # Fitness & Health
-    'Gym Membership': ['gym', 'fitness', 'workout', 'membership'],
-    'Yoga Classes': ['yoga', 'meditation', 'wellness'],
-    'Personal Trainer': ['trainer', 'coach', 'fitness coach'],
-    'Health Insurance': ['health insurance', 'medical insurance'],
-    'Medical': ['doctor', 'hospital', 'clinic', 'medical', 'consultation'],
-    'Pharmacy': ['pharmacy', 'medicine', 'drugs', 'medical store'],
-    'Planet Fitness': ['planet fitness'],
-    'LA Fitness': ['la fitness'],
-    'CrossFit': ['crossfit'],
-    'Peloton': ['peloton'],
-    'MyFitnessPal': ['myfitnesspal'],
-    'Strava': ['strava'],
-    'Headspace': ['headspace'],
-    'Calm': ['calm'],
-    'CVS Health': ['cvs'],
-    'Walgreens': ['walgreens'],
-    'Teladoc': ['teladoc'],
-    'Mental Health': ['therapy', 'therapist', 'counseling', 'mental health'],
-    
-    # Education & Learning
-    'Coursera': ['coursera'],
-    'Udemy': ['udemy'],
-    'Skillshare': ['skillshare'],
-    'LinkedIn Learning': ['linkedin learning'],
-    'MasterClass': ['masterclass'],
-    'Khan Academy': ['khan academy'],
-    'Duolingo': ['duolingo'],
-    'Education': ['education', 'course', 'training', 'learning', 'tuition'],
-    
-    # Utilities & Bills
-    'Electricity': ['electricity', 'power bill', 'electric bill', 'ebill'],
-    'Water': ['water bill', 'water supply'],
-    'Gas': ['gas bill', 'lpg', 'cooking gas'],
-    'Internet': ['internet', 'wifi', 'broadband', 'data'],
-    'Mobile Bill': ['mobile', 'phone bill', 'cellular', 'recharge'],
-    'DTH/Cable': ['dth', 'cable', 'tv', 'dish'],
-    'Maintenance': ['maintenance', 'repair', 'service'],
-    'Verizon': ['verizon'],
-    'AT&T': ['att', 'at&t'],
-    'T-Mobile': ['t-mobile', 'tmobile'],
-    'Comcast Xfinity': ['comcast', 'xfinity'],
-    'Spectrum': ['spectrum'],
-    'YouTube TV': ['youtube tv'],
-    'Sling TV': ['sling tv'],
-    'Home Security': ['security', 'alarm'],
-    'ADT': ['adt'],
-    'Ring': ['ring'],
-    'Property Tax': ['property tax', 'tax'],
-    'HOA Fees': ['hoa', 'association'],
-    
-    # Travel & Accommodation
-    'Flight Booking': ['flight', 'airline', 'air ticket', 'aviation'],
-    'Hotel Booking': ['hotel', 'accommodation', 'stay', 'booking'],
-    'Airbnb': ['airbnb'],
-    'Travel Insurance': ['travel insurance'],
-    'Expedia': ['expedia'],
-    'Booking.com': ['booking.com', 'booking'],
-    'Hotels.com': ['hotels.com'],
-    'Hilton': ['hilton'],
-    'Marriott': ['marriott'],
-    'Hyatt': ['hyatt'],
-    'American Airlines': ['american airlines'],
-    'Delta': ['delta airlines'],
-    'United': ['united airlines'],
-    'Southwest': ['southwest'],
-    'Hertz': ['hertz'],
-    'Avis': ['avis'],
-    'Enterprise': ['enterprise'],
-    'Royal Caribbean': ['royal caribbean'],
-    'Carnival': ['carnival cruise'],
-    'Amtrak': ['amtrak'],
-    'Greyhound': ['greyhound'],
-    'Travel': ['travel', 'trip', 'vacation', 'holiday'],
-    
-    # Professional Services
-    'Legal Services': ['lawyer', 'attorney', 'legal', 'law firm'],
-    'Accounting': ['accountant', 'tax', 'bookkeeping', 'audit'],
-    'Consulting': ['consultant', 'consulting', 'advisory'],
-    'Marketing': ['marketing', 'advertising', 'promotion'],
-    'Design Services': ['design', 'graphic design', 'web design'],
-    'Upwork': ['upwork'],
-    'Fiverr': ['fiverr'],
-    'Freelancer': ['freelancer'],
-    'QuickBooks': ['quickbooks'],
-    'TurboTax': ['turbotax'],
-    'H&R Block': ['h&r block'],
-    'LegalZoom': ['legalzoom'],
-    
-    # Cryptocurrency & Fintech
-    'Coinbase': ['coinbase'],
-    'Binance': ['binance'],
-    'PayPal': ['paypal'],
-    'Stripe': ['stripe'],
-    'Razorpay': ['razorpay'],
-    'Paytm': ['paytm'],
-    'PhonePe': ['phonepe'],
-    'Google Pay': ['google pay', 'gpay'],
-    'Robinhood': ['robinhood'],
-    'Webull': ['webull'],
-    'Charles Schwab': ['schwab'],
-    'Fidelity': ['fidelity'],
-    'Chime': ['chime'],
-    'Venmo': ['venmo'],
-    'Zelle': ['zelle'],
-    'Cash App': ['cash app', 'cashapp'],
-    'Apple Pay': ['apple pay'],
-    'Western Union': ['western union'],
-    
-    # General Fallback Categories
-    'Entertainment': ['entertainment', 'movie', 'cinema', 'show', 'concert', 'event'],
-    'Healthcare': ['health', 'medical', 'doctor', 'hospital', 'clinic'],
-    'Subscriptions': ['subscription', 'monthly', 'recurring', 'premium'],
-    'Charity & Donations': ['donation', 'charity', 'non-profit', 'ngo'],
-    'Pet Care': ['pet', 'veterinary', 'animal', 'dog', 'cat'],
-    'Work & Professional': ['office', 'work', 'professional', 'business'],
-    'Other': ['miscellaneous', 'other', 'unknown']
-}
-
+            # Banking & Finance
+            'ATM Withdrawal': ['atm', 'withdrawal', 'cash', 'withdraw'],
+            'Bank Transfer': ['transfer', 'upi', 'neft', 'rtgs', 'imps', 'bank transfer', 'fund transfer'],
+            'Investment': ['mutual fund', 'sip', 'investment', 'equity', 'stock'],
+            'Insurance': ['insurance', 'policy', 'premium', 'lic'],
+            
+            # Shopping & Commerce
+            'Online Purchase': ['amazon', 'flipkart', 'myntra', 'ajio', 'online', 'e-commerce'],
+            'Shopping': ['mall', 'store', 'retail', 'shopping', 'market'],
+            
+            # Daily Expenses
+            'Food & Dining': ['restaurant', 'food', 'dining', 'zomato', 'swiggy', 'dominos', 'kfc', 'mcdonald'],
+            'Transportation': ['fuel', 'petrol', 'diesel', 'uber', 'ola', 'metro', 'bus', 'taxi'],
+            'Bills & Utilities': ['electricity', 'water', 'gas', 'mobile', 'internet', 'broadband', 'bill'],
+            
+            # Lifestyle
+            'Entertainment': ['movie', 'cinema', 'netflix', 'spotify', 'game', 'entertainment'],
+            'Travel': ['hotel', 'flight', 'travel', 'booking', 'makemytrip', 'goibibo'],
+            'Healthcare': ['hospital', 'doctor', 'medical', 'pharmacy', 'medicine', 'health'],
+            'Education': ['school', 'college', 'university', 'course', 'education', 'fees'],
+            
+            # Services
+            'Subscription': ['subscription', 'monthly', 'annual', 'renewal'],
+            'Charity': ['donation', 'charity', 'ngo', 'trust', 'foundation']
+        }
         
         for category, keywords in fallback_rules.items():
             if any(keyword in text for keyword in keywords):
@@ -941,9 +341,82 @@ class SBIEmailExtractor:
             self.categorizer = AITransactionCategorizer(replicate_token)
         else:
             self.categorizer = None
-        
+    
+    def get_authorization_url(self):
+        """Generate OAuth authorization URL for Streamlit Cloud"""
+        try:
+            client_id = self.config_manager.get_config_value('GMAIL_CLIENT_ID')
+            client_secret = self.config_manager.get_config_value('GMAIL_CLIENT_SECRET')
+            redirect_uri = self.config_manager.get_config_value('REDIRECT_URI')
+            
+            if not client_id or not client_secret:
+                return None
+            
+            # Create OAuth2 config
+            client_config = {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "redirect_uris": [redirect_uri]
+                }
+            }
+            
+            flow = InstalledAppFlow.from_client_config(client_config, self.scopes)
+            flow.redirect_uri = redirect_uri
+            
+            authorization_url, state = flow.authorization_url(
+                access_type='offline',
+                include_granted_scopes='true'
+            )
+            
+            # Store flow in session state for later use
+            st.session_state.oauth_flow = flow
+            st.session_state.oauth_state = state
+            
+            return authorization_url
+            
+        except Exception as e:
+            st.error(f"Error generating authorization URL: {e}")
+            return None
+    
+    def handle_oauth_callback(self, authorization_code: str):
+        """Handle OAuth callback and exchange code for tokens"""
+        try:
+            if 'oauth_flow' not in st.session_state:
+                return False, None
+            
+            flow = st.session_state.oauth_flow
+            
+            # Exchange authorization code for credentials
+            flow.fetch_token(code=authorization_code)
+            creds = flow.credentials
+            
+            # Save credentials for future use
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+            
+            # Build the Gmail service
+            self.service = build('gmail', 'v1', credentials=creds)
+            
+            # Get user email
+            user_info = self.service.users().getProfile(userId='me').execute()
+            user_email = user_info.get('emailAddress', 'Unknown')
+            
+            # Clear OAuth flow from session state
+            del st.session_state.oauth_flow
+            del st.session_state.oauth_state
+            
+            return True, user_email
+            
+        except Exception as e:
+            st.error(f"OAuth callback failed: {e}")
+            return False, None
+    
     def authenticate_gmail(self):
-        """Authenticate with Gmail using OAuth2"""
+        """Authenticate with Gmail using OAuth2 - Streamlit Cloud compatible"""
         try:
             client_id = self.config_manager.get_config_value('GMAIL_CLIENT_ID')
             client_secret = self.config_manager.get_config_value('GMAIL_CLIENT_SECRET')
@@ -958,34 +431,21 @@ class SBIEmailExtractor:
             if os.path.exists('token.json'):
                 creds = Credentials.from_authorized_user_file('token.json', self.scopes)
             
-            # If there are no (valid) credentials available, let the user log in
+            # If there are no (valid) credentials available, need to authenticate
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
                     try:
                         creds.refresh(Request())
+                        # Save refreshed credentials
+                        with open('token.json', 'w') as token:
+                            token.write(creds.to_json())
                     except Exception as e:
                         st.error(f"Token refresh failed: {e}")
                         creds = None
                 
                 if not creds:
-                    # Create OAuth2 config
-                    client_config = {
-                        "installed": {
-                            "client_id": client_id,
-                            "client_secret": client_secret,
-                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                            "token_uri": "https://oauth2.googleapis.com/token",
-                            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                            "redirect_uris": ["https://sbi-track.streamlit.app/"]
-                        }
-                    }
-                    
-                    flow = InstalledAppFlow.from_client_config(client_config, self.scopes)
-                    creds = flow.run_local_server(port=0)
-                
-                # Save the credentials for the next run
-                with open('token.json', 'w') as token:
-                    token.write(creds.to_json())
+                    # Need to get new credentials
+                    return False, None
             
             # Build the Gmail service
             self.service = build('gmail', 'v1', credentials=creds)
@@ -1317,7 +777,7 @@ def create_visualizations(df, categorizer):
     df_sorted['month'] = df_sorted['date_parsed'].dt.to_period('M')
     monthly_spending = df_sorted.groupby(['month', 'category'])['amount_numeric'].sum().reset_index()
     monthly_spending['month'] = monthly_spending['month'].astype(str)
-    
+    # Monthly spending stacked bar chart
     fig_monthly = px.bar(
         monthly_spending,
         x='month',
@@ -1326,368 +786,345 @@ def create_visualizations(df, categorizer):
         title='Monthly Spending by Category',
         color_discrete_map={cat: categorizer.get_category_color(cat) for cat in monthly_spending['category'].unique()}
     )
+    fig_monthly.update_layout(xaxis_tickangle=-45)
     
     return fig_pie, fig_bar, fig_timeline, fig_monthly
 
+def display_transaction_table(df):
+    """Display transaction data in a formatted table"""
+    
+    # Apply global date filter
+    df_filtered = apply_date_filter(df)
+    
+    if len(df_filtered) == 0:
+        st.warning("No transactions found in the selected date range.")
+        return
+    
+    # Create display dataframe
+    display_df = df_filtered[[
+        'date_parsed', 'subject', 'category', 'amount', 'email_body_preview'
+    ]].copy()
+    
+    display_df = display_df.rename(columns={
+        'date_parsed': 'Date',
+        'subject': 'Description',
+        'category': 'Category',
+        'amount': 'Amount (₹)',
+        'email_body_preview': 'Details'
+    })
+    
+    # Sort by date descending
+    display_df = display_df.sort_values('Date', ascending=False)
+    
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+def create_summary_metrics(df):
+    """Create summary metrics cards"""
+    
+    # Apply global date filter
+    df_filtered = apply_date_filter(df)
+    
+    if len(df_filtered) == 0:
+        return
+    
+    # Calculate metrics
+    total_transactions = len(df_filtered)
+    total_amount = df_filtered['amount_numeric'].sum()
+    avg_transaction = df_filtered['amount_numeric'].mean()
+    date_range = f"{df_filtered['date_parsed'].min().strftime('%Y-%m-%d')} to {df_filtered['date_parsed'].max().strftime('%Y-%m-%d')}"
+    
+    # Display metrics in columns
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Transactions", total_transactions)
+    
+    with col2:
+        st.metric("Total Amount", f"₹{total_amount:,.2f}")
+    
+    with col3:
+        st.metric("Average Transaction", f"₹{avg_transaction:,.2f}")
+    
+    with col4:
+        st.metric("Date Range", date_range)
+
+def display_category_insights(df, categorizer):
+    """Display category-wise insights"""
+    
+    # Apply global date filter
+    df_filtered = apply_date_filter(df)
+    
+    if len(df_filtered) == 0:
+        return
+    
+    st.subheader("📊 Category Insights")
+    
+    # Category summary
+    category_summary = df_filtered.groupby('category').agg({
+        'amount_numeric': ['sum', 'mean', 'count']
+    }).round(2)
+    
+    category_summary.columns = ['Total Amount', 'Average Amount', 'Transaction Count']
+    category_summary = category_summary.sort_values('Total Amount', ascending=False)
+    
+    # Add percentage of total
+    category_summary['% of Total'] = (category_summary['Total Amount'] / category_summary['Total Amount'].sum() * 100).round(1)
+    
+    st.dataframe(
+        category_summary,
+        use_container_width=True
+    )
+    
+    # Top spending categories
+    st.subheader("🏆 Top Spending Categories")
+    top_categories = category_summary.head(5)
+    
+    for idx, (category, row) in enumerate(top_categories.iterrows(), 1):
+        color = categorizer.get_category_color(category)
+        st.markdown(f"""
+        <div style="background-color: {color}20; padding: 10px; margin: 5px 0; border-radius: 5px; border-left: 4px solid {color};">
+            <strong>#{idx} {category}</strong><br>
+            Amount: ₹{row['Total Amount']:,.2f} ({row['% of Total']}%)<br>
+            Transactions: {int(row['Transaction Count'])} | Average: ₹{row['Average Amount']:,.2f}
+        </div>
+        """, unsafe_allow_html=True)
+
+def export_data(df):
+    """Export transaction data to CSV"""
+    
+    # Apply global date filter
+    df_filtered = apply_date_filter(df)
+    
+    if len(df_filtered) == 0:
+        st.warning("No data to export in the selected date range.")
+        return
+    
+    # Prepare export dataframe
+    export_df = df_filtered[[
+        'date_parsed', 'subject', 'category', 'amount', 
+        'ai_extracted_amount', 'regex_extracted_amounts'
+    ]].copy()
+    
+    export_df = export_df.rename(columns={
+        'date_parsed': 'Date',
+        'subject': 'Transaction Description',
+        'category': 'Category',
+        'amount': 'Amount',
+        'ai_extracted_amount': 'AI Extracted Amount',
+        'regex_extracted_amounts': 'Regex Extracted Amounts'
+    })
+    
+    # Convert to CSV
+    csv = export_df.to_csv(index=False)
+    
+    st.download_button(
+        label="📥 Download Transaction Data (CSV)",
+        data=csv,
+        file_name=f"sbi_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
+
 def main():
-    """Main Streamlit app"""
+    """Main Streamlit application"""
     
-    st.title("🏦 SBI Transaction Analyzer")
-    st.markdown("Extract and analyze your SBI bank transaction alerts with AI-powered categorization")
-    
-    # Initialize configuration manager
+    # Initialize configuration
     config_manager = ConfigManager()
     
-    # Sidebar for authentication and configuration
-    st.sidebar.header("Authentication")
-
+    st.title("🏦 SBI Transaction Analyzer")
+    st.markdown("Analyze your SBI ATM transaction alerts with AI-powered categorization")
+    
+    # Display configuration status in sidebar only if there are issues
+    config_manager.display_config_status()
+    
+    # Check if configuration is valid
+    if not config_manager.validate_config():
+        st.error("⚠️ Configuration incomplete. Please check the sidebar for setup instructions.")
+        st.stop()
+    
+    # Initialize email extractor
+    extractor = SBIEmailExtractor(config_manager)
+    
+    # Authentication section
+    st.sidebar.header("🔐 Authentication")
+    
+    # Check for OAuth callback
+    query_params = st.query_params
+    if 'code' in query_params and not st.session_state.authenticated:
+        with st.spinner("Processing authentication..."):
+            success, user_email = extractor.handle_oauth_callback(query_params['code'])
+            if success:
+                st.session_state.authenticated = True
+                st.session_state.user_email = user_email
+                st.success(f"✅ Successfully authenticated as {user_email}")
+                # Clear the URL parameters
+                st.query_params.clear()
+                st.rerun()
+            else:
+                st.error("❌ Authentication failed")
+    
+    # Check existing authentication
     if not st.session_state.authenticated:
-        st.sidebar.info("Please login with your Gmail account to analyze SBI transactions")
+        success, user_email = extractor.authenticate_gmail()
+        if success:
+            st.session_state.authenticated = True
+            st.session_state.user_email = user_email
+    
+    # Display authentication status
+    if st.session_state.authenticated:
+        st.sidebar.success(f"✅ Authenticated as {st.session_state.user_email}")
         
-        if st.sidebar.button("🔐 Login with Gmail", type="primary"):
-            with st.spinner("Authenticating..."):
-                if not config_manager.validate_config():
-                    st.sidebar.error("Configuration incomplete. Please check credentials.")
-                    config_manager.display_config_status()
-                else:
-                    extractor = SBIEmailExtractor(config_manager)
-                    success, user_email = extractor.authenticate_gmail()
-                    if success:
-                        st.session_state.authenticated = True
-                        st.session_state.user_email = user_email
-                        st.rerun()
-                    else:
-                        st.sidebar.error("Authentication failed")
-    else:
-        st.sidebar.success(f"✅ Logged in as: {st.session_state.user_email}")
-        
-        if st.sidebar.button("🚪 Logout"):
-            # Clear authentication state
+        if st.sidebar.button("🔓 Logout"):
             st.session_state.authenticated = False
             st.session_state.user_email = None
-            
-            # Remove saved token
             if os.path.exists('token.json'):
                 os.remove('token.json')
-            
-            # Clear other session data
-            keys_to_clear = ['transaction_data', 'categorizer', 'results_processed', 
-                           'date_filter_enabled', 'date_filter_start', 'date_filter_end']
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
-            
             st.rerun()
-
-    # Only show configuration and other options if authenticated
+    else:
+        st.sidebar.info("🔒 Not authenticated")
+        
+        # Generate authorization URL
+        auth_url = extractor.get_authorization_url()
+        if auth_url:
+            st.sidebar.markdown(f"""
+            **To get started:**
+            1. Click the link below to authorize Gmail access
+            2. Grant permissions in Google
+            3. You'll be redirected back automatically
+            
+            [🔐 **Authorize Gmail Access**]({auth_url})
+            """)
+        else:
+            st.sidebar.error("Unable to generate authorization URL. Check configuration.")
+    
+    # Main application (only show if authenticated)
     if st.session_state.authenticated:
-        st.sidebar.header("Configuration")
-        config_manager.display_config_status()
         
-        # Settings
-        st.sidebar.subheader("Analysis Settings")
-        max_emails = st.sidebar.slider("Max Emails to Process", 5, 100, 20)
-
-        # Date Range Filter - Fixed Implementation
-        st.sidebar.subheader("Date Range Filter")
+        # Sidebar controls
+        st.sidebar.header("⚙️ Analysis Settings")
         
-        # Initialize date filter state if not exists
-        if 'date_filter_enabled' not in st.session_state:
-            st.session_state.date_filter_enabled = False
-        
-        date_filter_enabled = st.sidebar.checkbox(
-            "Enable Date Filtering", 
-            value=st.session_state.get('date_filter_enabled', False),
-            key='date_filter_checkbox'
+        max_emails = st.sidebar.slider(
+            "Max emails to analyze", 
+            min_value=10, 
+            max_value=200, 
+            value=50, 
+            step=10
         )
         
-        # Update session state
-        st.session_state.date_filter_enabled = date_filter_enabled
-
+        # Date filter controls
+        st.sidebar.subheader("📅 Date Filter")
+        date_filter_enabled = st.sidebar.checkbox("Enable date filter", key="date_filter_enabled")
+        
         if date_filter_enabled:
-            # Set default date range (last 30 days)
-            default_end = datetime.now().date()
-            default_start = default_end - timedelta(days=30)
-            
-            # Get existing values from session state or use defaults
-            existing_start = st.session_state.get('date_filter_start', default_start)
-            existing_end = st.session_state.get('date_filter_end', default_end)
+            # Default to last 30 days
+            default_start = datetime.now() - timedelta(days=30)
+            default_end = datetime.now()
             
             start_date = st.sidebar.date_input(
-                "Start Date", 
-                value=existing_start,
-                key='date_start_input'
+                "Start Date",
+                value=default_start.date(),
+                key="date_filter_start"
             )
             end_date = st.sidebar.date_input(
                 "End Date", 
-                value=existing_end,
-                min_value=start_date,
-                key='date_end_input'
+                value=default_end.date(),
+                key="date_filter_end"
             )
             
-            # Store in session state
-            st.session_state.date_filter_start = start_date
-            st.session_state.date_filter_end = end_date
+            if start_date > end_date:
+                st.sidebar.error("Start date must be before end date")
+        
+        # Process emails button
+        if st.sidebar.button("🔍 Analyze Transactions", type="primary"):
             
-            # Show current filter status
-            st.sidebar.info(f"Filtering: {start_date} to {end_date}")
-        else:
-            # Clear date filter from session state when disabled
-            if 'date_filter_start' in st.session_state:
-                del st.session_state['date_filter_start']
-            if 'date_filter_end' in st.session_state:
-                del st.session_state['date_filter_end']
-        
-        # Show available categories
-        if st.sidebar.checkbox("Show Available Categories"):
-            st.sidebar.subheader("Available Categories")
-            sample_categorizer = AITransactionCategorizer("dummy")
-            categories = sample_categorizer.get_all_categories()
-            for cat in categories:
-                st.sidebar.write(f"• {cat}")
-    
-    # Main content - only show if authenticated
-    if not st.session_state.authenticated:
-        st.info("👈 Please login using the sidebar to start analyzing your SBI transactions")
-        
-        # Show features
-        st.markdown("""
-        ## 🚀 Features
-        
-        ### 📧 Email Integration
-        - **Gmail OAuth Authentication**: Secure login with your Gmail account
-        - **Automated Email Extraction**: Fetch SBI transaction alerts automatically
-        - **Smart Email Parsing**: Extract transaction details from email content
-        
-        ### 🤖 AI-Powered Analysis
-        - **Smart Categorization**: AI automatically categorizes transactions
-        - **Amount Extraction**: Intelligent extraction of transaction amounts
-        - **Pattern Recognition**: Advanced pattern matching for better accuracy
-        
-        ### 📊 Data Visualization
-        - **Interactive Charts**: Beautiful charts and graphs using Plotly
-        - **Category Breakdown**: Pie charts showing spending distribution
-        - **Timeline Analysis**: Track spending patterns over time
-        - **Monthly Trends**: Analyze monthly spending by category
-        
-        ### 🔧 Advanced Features
-        - **Date Range Filtering**: Filter transactions by custom date ranges
-        - **Export Options**: Download your analysis results
-        - **Real-time Processing**: Process up to 100 recent transactions
-        """)
-        
-        return
-    
-    # Main analysis section - only shown when authenticated
-    st.header("📊 Transaction Analysis")
-    
-    # Analysis button
-    if st.button("🔍 Analyze Transactions", type="primary"):
-        # Clear previous results when starting new analysis
-        if 'transaction_data' in st.session_state:
-            del st.session_state['transaction_data']
-        if 'results_processed' in st.session_state:
-            del st.session_state['results_processed']
-        
-        # Initialize extractor
-        extractor = SBIEmailExtractor(config_manager)
-        extractor.service = build('gmail', 'v1', credentials=Credentials.from_authorized_user_file('token.json', extractor.scopes))
-        
-        # Progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        def update_progress(current, total):
-            progress = current / total
-            progress_bar.progress(progress)
-            status_text.text(f"Processing email {current} of {total}")
-        
-        with st.spinner("Fetching and analyzing SBI transaction emails..."):
-            # Process emails
-            results = extractor.process_emails(max_emails, update_progress)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            if results:
-                st.session_state.transaction_data = results
-                st.session_state.categorizer = extractor.categorizer
-                st.session_state.results_processed = True
-                st.success(f"✅ Successfully processed {len(results)} transaction emails!")
-            else:
-                st.error("❌ No SBI transaction emails found or processing failed")
-        
-        # Clear progress indicators
-        progress_bar.empty()
-        status_text.empty()
-    
-    # Display results if available
-    if st.session_state.get('results_processed', False) and 'transaction_data' in st.session_state:
-        results = st.session_state.transaction_data
-        categorizer = st.session_state.categorizer
-        
-        # Convert to DataFrame for analysis
-        df = pd.DataFrame(results)
-        
-        # Clean and prepare data
-        df['amount_numeric'] = pd.to_numeric(
-            df['amount'].str.replace(',', '').str.replace('Rs.', '').str.replace('₹', '').str.strip(), 
-            errors='coerce'
-        )
-        
-        # Parse dates
-        df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
-        
-        # Remove rows with invalid amounts or dates
-        df = df.dropna(subset=['amount_numeric', 'date_parsed'])
-        
-        if len(df) == 0:
-            st.error("No valid transactions found after data cleaning")
-            return
-        
-        # Sort by date (newest first)
-        df = df.sort_values('date_parsed', ascending=False)
-        
-        # Apply date filter for summary stats
-        df_filtered = apply_date_filter(df)
-        
-        # Summary Statistics
-        st.header("📈 Summary Statistics")
-        
-        if len(df_filtered) > 0:
-            col1, col2, col3, col4 = st.columns(4)
+            def update_progress(current, total):
+                progress = current / total
+                progress_bar.progress(progress)
+                status_text.text(f"Processing email {current}/{total}...")
             
-            with col1:
-                st.metric("Total Transactions", len(df_filtered))
-            
-            with col2:
-                total_amount = df_filtered['amount_numeric'].sum()
-                st.metric("Total Amount", f"₹{total_amount:,.2f}")
-            
-            with col3:
-                avg_amount = df_filtered['amount_numeric'].mean()
-                st.metric("Average Amount", f"₹{avg_amount:,.2f}")
-            
-            with col4:
-                date_range = df_filtered['date_parsed'].max() - df_filtered['date_parsed'].min()
-                st.metric("Date Range", f"{date_range.days} days")
-        else:
-            st.warning("No transactions in selected date range")
-            return
-        
-        # Visualizations
-        st.header("📊 Visual Analysis")
-        
-        # Create visualizations
-        fig_pie, fig_bar, fig_timeline, fig_monthly = create_visualizations(df, categorizer)
-        
-        if fig_pie:
-            # Display charts in columns
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.plotly_chart(fig_pie, use_container_width=True)
-            
-            with col2:
-                st.plotly_chart(fig_bar, use_container_width=True)
-            
-            # Timeline and monthly trends
-            st.plotly_chart(fig_timeline, use_container_width=True)
-            st.plotly_chart(fig_monthly, use_container_width=True)
-        
-        # Category Analysis
-        st.header("🏷️ Category Breakdown")
-        
-        # Apply date filter to category analysis
-        df_for_categories = apply_date_filter(df)
-        
-        if len(df_for_categories) > 0:
-            category_stats = df_for_categories.groupby('category').agg({
-                'amount_numeric': ['count', 'sum', 'mean'],
-                'date_parsed': ['min', 'max']
-            }).round(2)
-            
-            category_stats.columns = ['Count', 'Total Amount', 'Average Amount', 'First Transaction', 'Last Transaction']
-            category_stats['Total Amount'] = category_stats['Total Amount'].apply(lambda x: f"₹{x:,.2f}")
-            category_stats['Average Amount'] = category_stats['Average Amount'].apply(lambda x: f"₹{x:,.2f}")
-            
-            st.dataframe(category_stats, use_container_width=True)
-        
-        # Transaction Details Table
-        st.header("📋 Transaction Details")
-        
-        # Show date filter status
-        if st.session_state.get('date_filter_enabled', False):
-            st.info(f"Showing transactions from {st.session_state.get('date_filter_start')} to {st.session_state.get('date_filter_end')}")
-        
-        # Apply date filter to transaction details
-        df_display = apply_date_filter(df)
-        
-        if len(df_display) > 0:
-            # Select columns to display
-            display_columns = ['date_parsed', 'amount', 'category', 'subject', 'email_body_preview']
-            df_display_clean = df_display[display_columns].copy()
-            df_display_clean['date_parsed'] = df_display_clean['date_parsed'].dt.strftime('%Y-%m-%d %H:%M')
-            df_display_clean.columns = ['Date', 'Amount', 'Category', 'Subject', 'Preview']
-            
-            st.dataframe(df_display_clean, use_container_width=True)
-            
-            # Export functionality
-            st.header("💾 Export Data")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Export filtered data as CSV
-                csv_data = df_display.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download CSV",
-                    data=csv_data,
-                    file_name=f"sbi_transactions_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+            with st.spinner("Fetching and analyzing emails..."):
+                transactions = extractor.process_emails(
+                    max_emails=max_emails,
+                    progress_callback=update_progress
                 )
             
-            with col2:
-                # Export summary statistics
-                if len(df_filtered) > 0:
-                    summary_data = {
-                        'Total Transactions': len(df_filtered),
-                        'Total Amount': f"₹{df_filtered['amount_numeric'].sum():,.2f}",
-                        'Average Amount': f"₹{df_filtered['amount_numeric'].mean():,.2f}",
-                        'Date Range': f"{df_filtered['date_parsed'].min().strftime('%Y-%m-%d')} to {df_filtered['date_parsed'].max().strftime('%Y-%m-%d')}"
-                    }
-                    
-                    summary_df = pd.DataFrame(list(summary_data.items()), columns=['Metric', 'Value'])
-                    summary_csv = summary_df.to_csv(index=False)
-                    
-                    st.download_button(
-                        label="📊 Download Summary",
-                        data=summary_csv,
-                        file_name=f"sbi_summary_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-        else:
-            st.warning("No transactions found in the selected date range")
-        
-        # AI Analysis Insights
-        st.header("🧠 AI Insights")
-        
-        if categorizer and len(df_filtered) > 0:
-            insights_col1, insights_col2 = st.columns(2)
+            progress_bar.empty()
+            status_text.empty()
             
-            with insights_col1:
-                st.subheader("Top Categories")
-                top_categories = df_filtered.groupby('category')['amount_numeric'].sum().sort_values(ascending=False).head(5)
-                for category, amount in top_categories.items():
-                    st.write(f"• **{category}**: ₹{amount:,.2f}")
+            if transactions:
+                # Convert to DataFrame
+                df = pd.DataFrame(transactions)
+                
+                # Process data
+                df = df[df['amount'].notna()]  # Remove rows without amounts
+                df['amount_numeric'] = df['amount'].apply(lambda x: float(str(x).replace(',', '')) if x else 0)
+                
+                # Parse dates
+                df['date_parsed'] = df['date'].apply(lambda x: dateutil.parser.parse(x) if x else datetime.now())
+                
+                # Store in session state
+                st.session_state.transactions_df = df
+                st.session_state.categorizer = extractor.categorizer
+                
+                st.success(f"✅ Successfully analyzed {len(df)} transactions!")
+            else:
+                st.warning("No transactions found or analysis failed.")
+    
+    # Display results if available
+    if st.session_state.get('transactions_df') is not None:
+        df = st.session_state.transactions_df
+        categorizer = st.session_state.categorizer
+        
+        # Create tabs for different views
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "📋 Transactions", "💡 Insights", "📥 Export"])
+        
+        with tab1:
+            st.header("📊 Transaction Dashboard")
             
-            with insights_col2:
-                st.subheader("Transaction Patterns")
-                st.write(f"• Most active day: {df_filtered['date_parsed'].dt.day_name().mode().iloc[0]}")
-                st.write(f"• Peak hour: {df_filtered['date_parsed'].dt.hour.mode().iloc[0]}:00")
-                st.write(f"• Largest transaction: ₹{df_filtered['amount_numeric'].max():,.2f}")
-                st.write(f"• Smallest transaction: ₹{df_filtered['amount_numeric'].min():,.2f}")
+            # Summary metrics
+            create_summary_metrics(df)
+            
+            # Visualizations
+            with st.spinner("Creating visualizations..."):
+                fig_pie, fig_bar, fig_timeline, fig_monthly = create_visualizations(df, categorizer)
+                
+                if fig_pie:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    
+                    with col2:
+                        st.plotly_chart(fig_bar, use_container_width=True)
+                    
+                    st.plotly_chart(fig_timeline, use_container_width=True)
+                    st.plotly_chart(fig_monthly, use_container_width=True)
+        
+        with tab2:
+            st.header("📋 Transaction Details")
+            display_transaction_table(df)
+        
+        with tab3:
+            st.header("💡 Transaction Insights")
+            display_category_insights(df, categorizer)
+        
+        with tab4:
+            st.header("📥 Export Data")
+            st.write("Download your transaction data for further analysis.")
+            export_data(df)
     
     # Footer
     st.markdown("---")
-    st.markdown("*SBI Transaction Analyzer - Secure, AI-powered transaction analysis*")
+    st.markdown(
+        "Built with ❤️ using Streamlit | "
+        "Powered by Google Gmail API & Replicate AI"
+    )
 
 if __name__ == "__main__":
     main()
