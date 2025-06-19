@@ -1318,7 +1318,11 @@ def main():
     """Main Streamlit app"""
     
     st.title("🏦 SBI Transaction Analyzer")
-    st.markdown("Extract and analyze your SBI bank transaction alerts with AI-powered categorization")
+    st.markdown("### Extract and analyze your SBI bank transaction alerts with AI-powered categorization")
+
+    st.markdown("---")
+    st.markdown("Made by [Tanish Mittal](https://tanishmittal.com/)")
+
     
     # Initialize configuration manager
     config_manager = ConfigManager()
