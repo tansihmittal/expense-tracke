@@ -232,7 +232,7 @@ class AITransactionCategorizer:
             'Myntra': '#FF3F6C',
             'Nykaa': '#FC2779',
             'BigBasket': '#84C225',
-            'Grofers': '#00AC4F',
+            'Blinkit': '#FFDE21',
             'Paytm Mall': '#00BAF2',
             
             # Social Media & Communication (Expanded)
