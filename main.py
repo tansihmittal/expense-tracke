@@ -22,7 +22,7 @@ load_dotenv('.secret')
 
 # Set page config
 st.set_page_config(
-    page_title="SBI Transaction Analyzer",
+    page_title="SBI Card Spend Tracker/Analyzer",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1367,7 +1367,7 @@ def main():
             **For Gmail accounts with 2-Factor Authentication:**
             1. Go to Google Account settings
             2. Security → 2-Step Verification
-            3. App passwords → Generate new password
+            3. App passwords → Generate new password- https://myaccount.google.com/apppasswords
             4. Use the generated password here
             
             **For accounts without 2FA:**
@@ -1649,26 +1649,24 @@ def main():
             st.header("🚀 How to Use")
             
             st.markdown("""
-            ### Steps to Analyze Your SBI Transactions:
+### Steps to Analyze Your SBI Transactions:
             
-            1. **Authentication**: Login with your Gmail credentials in the sidebar
-            2. **Configuration**: Ensure your Replicate API token is set in `.secret` file
-            3. **Settings**: Adjust the number of emails to process (5-100)
-            4. **Date Filter**: Optionally enable date filtering to analyze specific periods
-            5. **Analysis**: Click "Analyze SBI Transactions" to start processing
-            
-            ### Features:
-            - 🤖 **AI-Powered Categorization**: Automatically categorizes transactions using advanced AI
-            - 📊 **Visual Analytics**: Interactive charts and graphs
-            - 🔍 **Smart Filtering**: Filter by category, amount, and date range
-            - 📈 **Trend Analysis**: Monthly spending patterns and timeline views
-            - 💾 **Export Options**: Download data as CSV for further analysis
-            
-            ### Requirements:
-            - Gmail account with SBI transaction alert emails
-            - Replicate API token for AI features
-            - App Password if 2FA is enabled on Gmail
-            """)
+1. **Authentication**: Login with your Gmail credentials in the sidebar
+2. **Settings**: Adjust the number of emails to process (5-100)
+3. **Date Filter**: Optionally enable date filtering to analyze specific periods
+4. **Analysis**: Click "Analyze SBI Transactions" to start processing
+
+### Features:
+- 🤖 **AI-Powered Categorization**: Automatically categorizes transactions using advanced AI
+- 📊 **Visual Analytics**: Interactive charts and graphs
+- 🔍 **Smart Filtering**: Filter by category, amount, and date range
+- 📈 **Trend Analysis**: Monthly spending patterns and timeline views
+- 💾 **Export Options**: Download data as CSV for further analysis
+
+### Requirements:
+- Gmail account with SBI transaction alert emails
+- App Password if 2FA is enabled on Gmail
+""")
             
             st.info("💡 Make sure you have SBI transaction alert emails in your Gmail inbox from 'donotreply.sbiatm@alerts.sbi.co.in'")
 
