@@ -1263,6 +1263,9 @@ def create_visualizations(df, categorizer):
         st.warning("No transactions found in the selected date range.")
         return None, None, None, None
     
+    # Get the color map from categorizer
+    color_map = {cat: categorizer.get_category_color(cat) for cat in df_filtered['category'].unique()}
+    
     # Category Distribution Pie Chart by Amount
     category_amounts = df_filtered.groupby('category')['amount_numeric'].sum().reset_index()
     fig_pie = px.pie(
@@ -1271,7 +1274,7 @@ def create_visualizations(df, categorizer):
         values='amount_numeric',
         title='Transaction Distribution by Category (by Amount)',
         color='category',
-        color_discrete_map={cat: categorizer.get_category_color(cat) for cat in category_amounts['category']}
+        color_discrete_map=color_map
     )
     fig_pie.update_traces(textposition='inside', textinfo='percent+label')
     
@@ -1282,7 +1285,7 @@ def create_visualizations(df, categorizer):
         y='amount_numeric',
         title='Total Amount by Category',
         color='category',
-        color_discrete_map={cat: categorizer.get_category_color(cat) for cat in category_amounts['category']}
+        color_discrete_map=color_map
     )
     fig_bar.update_layout(xaxis_tickangle=-45)
     
@@ -1295,7 +1298,7 @@ def create_visualizations(df, categorizer):
         color='category',
         title='Transaction Timeline',
         markers=True,
-        color_discrete_map={cat: categorizer.get_category_color(cat) for cat in df_sorted['category'].unique()}
+        color_discrete_map=color_map
     )
     
     # Monthly spending trends
@@ -1309,7 +1312,7 @@ def create_visualizations(df, categorizer):
         y='amount_numeric',
         color='category',
         title='Monthly Spending by Category',
-        color_discrete_map={cat: categorizer.get_category_color(cat) for cat in monthly_spending['category'].unique()}
+        color_discrete_map=color_map
     )
     
     return fig_pie, fig_bar, fig_timeline, fig_monthly
