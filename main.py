@@ -15,18 +15,102 @@ from collections import Counter
 import os
 from dotenv import load_dotenv
 import dateutil.parser
-
+import calendar
+from streamlit_tags import st_tags
+import numpy as np
+from io import StringIO
 
 # Load environment variables from .secret file
 load_dotenv('.secret')
 
 # Set page config
 st.set_page_config(
-    page_title="SBI Card Spend Tracker/Analyzer",
+    page_title="Bank Spend Tracker/Analyzer",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Custom CSS for styling
+st.markdown("""
+<style>
+    .main {
+        background-color: #f8f9fa;
+    }
+    .stButton>button {
+        border-radius: 8px;
+        padding: 8px 16px;
+    }
+    .stSelectbox, .stTextInput, .stTextArea, .stDateInput {
+        border-radius: 8px;
+    }
+    .stDataFrame {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-card {
+        background-color: white;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 15px;
+    }
+    .metric-title {
+        font-size: 14px;
+        color: #6c757d;
+        margin-bottom: 5px;
+    }
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #212529;
+    }
+    .section-header {
+        border-bottom: 2px solid #dee2e6;
+        padding-bottom: 5px;
+        margin-top: 20px;
+        margin-bottom: 15px;
+        color: #495057;
+    }
+    .bank-logo {
+        max-width: 30px;
+        max-height: 30px;
+        margin-right: 10px;
+        vertical-align: middle;
+    }
+    .category-tag {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        margin-right: 5px;
+        margin-bottom: 5px;
+    }
+    .transaction-card {
+        background-color: white;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 15px;
+    }
+    .transaction-amount {
+        font-size: 18px;
+        font-weight: bold;
+    }
+    .transaction-date {
+        font-size: 12px;
+        color: #6c757d;
+    }
+    .transaction-merchant {
+        font-weight: 500;
+        margin: 5px 0;
+        color: black;
+    }
+    .transaction-category {
+        font-size: 12px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize session state for authentication
 if 'authenticated' not in st.session_state:
@@ -44,7 +128,10 @@ class ConfigManager:
     def _load_config(self) -> Dict[str, str]:
         """Load configuration from environment variables"""
         config = {
-            'REPLICATE_API_TOKEN': os.getenv('REPLICATE_API_TOKEN')
+            'REPLICATE_API_TOKEN': os.getenv('REPLICATE_API_TOKEN'),
+            'PLAID_CLIENT_ID': os.getenv('PLAID_CLIENT_ID'),
+            'PLAID_SECRET': os.getenv('PLAID_SECRET'),
+            'PLAID_ENV': os.getenv('PLAID_ENV', 'sandbox')
         }
         return config
     
@@ -78,7 +165,9 @@ class ConfigManager:
             st.sidebar.subheader("Configuration Status")
             
             config_items = [
-                ("Replicate API Token", self.config.get('REPLICATE_API_TOKEN'))
+                ("Replicate API Token", self.config.get('REPLICATE_API_TOKEN')),
+                ("Plaid Client ID", self.config.get('PLAID_CLIENT_ID')),
+                ("Plaid Secret", self.config.get('PLAID_SECRET'))
             ]
             
             for name, value in config_items:
@@ -93,6 +182,9 @@ class ConfigManager:
                 Create a `.secret` file in your project root with:
                 ```
                 REPLICATE_API_TOKEN=your_replicate_token_here
+                PLAID_CLIENT_ID=your_plaid_client_id
+                PLAID_SECRET=your_plaid_secret
+                PLAID_ENV=sandbox
                 ```
                 """)
 
@@ -524,9 +616,9 @@ class AITransactionCategorizer:
             'Charity & Donations': '#27AE60',
             'Pet Care': '#FF6B9D',
             'Other': '#D3D3D3'
-        }       
+                            }       
     
-    def categorize_transaction_with_ai(self, subject: str, body: str, amount: str) -> str:
+    def categorize_transaction_with_ai(self, subject: str, body: str, amount: str, bank_name: str) -> str:
         """
         Use AI to categorize transactions intelligently
         
@@ -534,6 +626,7 @@ class AITransactionCategorizer:
             subject: Email subject
             body: Email body
             amount: Transaction amount
+            bank_name: Name of the bank
             
         Returns:
             Category name
@@ -547,16 +640,18 @@ class AITransactionCategorizer:
             }
             
             # Create a comprehensive prompt for AI categorization
-            transaction_text = f"Subject: {subject}\nBody: {body}\nAmount: {amount}"
+            transaction_text = f"Bank: {bank_name}\nSubject: {subject}\nBody: {body}\nAmount: {amount}"
             
-            categories_list = ", ".join([cat for cat in self.categories.keys() if cat != 'Other'])
+            # Get all available subcategories (keys in our categories dict)
+            subcategories_list = list(self.categories.keys())
             
             prompt = f"""
-                You are a financial transaction categorization expert. Analyze the transaction below and assign it to exactly ONE category from this list:
+                You are a financial transaction categorization expert. Analyze the transaction below and assign it to exactly ONE subcategory from this list:
 
-                {categories_list}
+                {', '.join(subcategories_list)}
 
                 ## Transaction Analysis Guidelines:
+                                ## Transaction Analysis Guidelines:
 
                 **Financial Services:**
                 - ATM Withdrawal: Cash withdrawals, ATM fees
@@ -585,7 +680,19 @@ class AITransactionCategorizer:
                 - Work & Professional: Software tools, cloud services, business expenses, coworking
                 - Subscriptions: Recurring services not covered in other specific categories
 
-                **Fallback:**
+
+
+                1. **Be Specific**: Always choose the most specific subcategory that matches the transaction
+                2. **Merchant Matching**: Match known brands to their specific subcategories (e.g., Starbucks → Starbucks, not just Food & Dining)
+                3. **Amount Context**: Consider the amount when categorizing (large amounts may indicate different categories)
+                4. **Bank Context**: Some banks specialize in certain transaction types
+                
+                ## Key Rules:
+                - Return ONLY the subcategory name from the provided list
+                - Never return a category that isn't in the list
+                - If no good match exists, return 'Other'
+
+                                **Fallback:**
                 - Other: Only if transaction doesn't clearly fit any specific category above
 
                 ## Key Decision Rules:
@@ -594,17 +701,16 @@ class AITransactionCategorizer:
                 3. **Amount Context**: Large amounts might indicate investments/transfers, small regular amounts suggest subscriptions
                 4. **Specificity**: Choose the MOST SPECIFIC category that fits (e.g., "Food & Dining" over "Entertainment")
 
+                
                 Transaction: {transaction_text}
 
-                Return only the category name. No explanation.
+                Subcategory:
                 """
-
-
             
             data = {
                 "input": {
                     "prompt": prompt,
-                    "system_prompt": "You are an expert financial transaction categorizer. Analyze bank transaction details and categorize them accurately based on merchant names, transaction descriptions, and context. Always return exactly one category name from the provided list."
+                    "system_prompt": "You are an expert financial transaction categorizer. Analyze bank transaction details and categorize them into the most specific subcategory available. Always return exactly one subcategory name from the provided list."
                 }
             }
             
@@ -620,13 +726,13 @@ class AITransactionCategorizer:
                     return category.strip()
                 else:
                     # Fallback to basic pattern matching if AI returns invalid category
-                    return self.fallback_categorization(subject, body, amount)
+                    return self.fallback_categorization(subject, body, amount, bank_name)
             else:
-                return self.fallback_categorization(subject, body, amount)
+                return self.fallback_categorization(subject, body, amount, bank_name)
                 
         except Exception as e:
             st.warning(f"AI categorization failed, using fallback: {e}")
-            return self.fallback_categorization(subject, body, amount)
+            return self.fallback_categorization(subject, body, amount, bank_name)
     
     def poll_prediction(self, prediction_id: str, max_attempts: int = 30) -> Optional[str]:
         """Poll Replicate API for prediction completion"""
@@ -662,7 +768,7 @@ class AITransactionCategorizer:
         
         return None
     
-    def fallback_categorization(self, subject: str, body: str, amount: str) -> str:
+    def fallback_categorization(self, subject: str, body: str, amount: str, bank_name: str) -> str:
         """Fallback categorization using simple keyword matching"""
         text = f"{subject} {body}".lower()
         
@@ -894,9 +1000,7 @@ class AITransactionCategorizer:
         'Pet Care': ['pet', 'veterinary', 'animal', 'dog', 'cat'],
         'Work & Professional': ['office', 'work', 'professional', 'business'],
         'Other': ['miscellaneous', 'other', 'unknown']
-}
-
-
+        }
         
         for category, keywords in fallback_rules.items():
             if any(keyword in text for keyword in keywords):
@@ -912,7 +1016,7 @@ class AITransactionCategorizer:
         """Get list of all available categories"""
         return list(self.categories.keys())
 
-class SBIEmailExtractor:
+class BankEmailExtractor:
     def __init__(self, config_manager: ConfigManager):
         """
         Initialize the email extractor with configuration manager
@@ -921,7 +1025,26 @@ class SBIEmailExtractor:
             config_manager: ConfigManager instance with loaded credentials
         """
         self.config_manager = config_manager
-        self.target_sender = "donotreply.sbiatm@alerts.sbi.co.in"
+        self.bank_senders = {
+            'SBI': ['donotreply.sbiatm@alerts.sbi.co.in'],
+            'Chase': ['noreply@chase.com'],
+            'Bank of America': ['alerts@bankofamerica.com'],
+            'Citi Bank': ['alerts@citibank.com'],
+            'Wells Fargo': ['alerts@wellsfargo.com'],
+            'Capital One': ['notifications@capitalone.com'],
+            'American Express': ['DoNotReply@americanexpress.com'],
+            'Discover': ['donotreply@discover.com'],
+            'Synchrony Bank': ['alerts@synchronybank.com'],
+            'US Bank': ['customerservice@usbank.com'],
+            'PNC Bank': ['alerts@pnc.com'],
+            'Truist': ['no-reply@truist.com'],
+            'Ally Bank': ['no-reply@ally.com'],
+            'SoFi': ['support@sofi.com'],
+            'PayPal': ['no-reply@paypal.com'],
+            'Venmo': ['donotreply@venmo.com'],
+            'TD Bank': ['mailer@tdbank.com', 'alerts@td.com'],
+            'Charles Schwab': ['no-reply@schwab.com']
+        }
         self.mail = None
         
         # Initialize categorizer if token is available
@@ -955,25 +1078,43 @@ class SBIEmailExtractor:
             st.error(f"❌ Connection failed: {e}")
             return False, None
     
-    def search_sbi_emails(self, max_results: int = 50) -> List[str]:
-        """Search for emails from SBI ATM alerts using IMAP"""
+    def search_bank_emails(self, max_results: int = 50) -> List[str]:
+        """Search for emails from supported banks using IMAP"""
         try:
             # Select INBOX
             self.mail.select('INBOX')
             
-            # Search for emails from SBI
-            search_criteria = f'FROM "{self.target_sender}"'
-            result, message_ids = self.mail.search(None, search_criteria)
+            all_message_ids = []
             
-            if result == 'OK':
-                # Get message IDs (most recent first)
-                message_id_list = message_ids[0].split()
-                message_id_list.reverse()  # Most recent first
+            # Search for each bank separately to avoid long IMAP queries
+            for bank, senders in self.bank_senders.items():
+                for sender in senders:
+                    try:
+                        # Search for emails from this sender
+                        result, message_ids = self.mail.search(None, f'FROM "{sender}"')
+                        
+                        if result == 'OK' and message_ids[0]:
+                            # Add to our collection
+                            all_message_ids.extend(message_ids[0].split())
+                            
+                            # Early exit if we've already reached max results
+                            if len(all_message_ids) >= max_results:
+                                break
+                    
+                    except Exception as e:
+                        st.warning(f"Warning: Error searching for {sender}: {str(e)}")
+                        continue
                 
-                # Limit results
-                return message_id_list[:max_results]
-            else:
-                return []
+                # Early exit if we've already reached max results
+                if len(all_message_ids) >= max_results:
+                    break
+            
+            # Get unique message IDs (most recent first)
+            unique_ids = list(set(all_message_ids))
+            unique_ids.sort(reverse=True)  # Most recent first
+            
+            # Limit results
+            return unique_ids[:max_results]
             
         except Exception as e:
             st.error(f"Error searching emails: {e}")
@@ -998,13 +1139,17 @@ class SBIEmailExtractor:
                 # Extract body
                 body = self.extract_email_body(email_message)
                 
+                # Determine which bank this email is from
+                bank_name = self.identify_bank(sender)
+                
                 return {
                     'message_id': message_id.decode(),
                     'subject': subject,
                     'sender': sender,
+                    'bank': bank_name,
                     'date': date_header,
                     'body': body,
-                    'full_text': f"Subject: {subject}\n\nBody: {body}"
+                    'full_text': f"Bank: {bank_name}\nSubject: {subject}\n\nBody: {body}"
                 }
             else:
                 return None
@@ -1012,6 +1157,14 @@ class SBIEmailExtractor:
         except Exception as e:
             st.error(f"Error fetching email {message_id}: {e}")
             return None
+    
+    def identify_bank(self, sender: str) -> str:
+        """Identify which bank the email is from based on sender address"""
+        for bank, senders in self.bank_senders.items():
+            for s in senders:
+                if s.lower() in sender.lower():
+                    return bank
+        return "Unknown Bank"
     
     def extract_email_body(self, email_message) -> str:
         """Extract body text from email message"""
@@ -1054,7 +1207,7 @@ class SBIEmailExtractor:
         
         return body
     
-    def extract_amount_with_ai(self, email_text: str) -> Optional[str]:
+    def extract_amount_with_ai(self, email_text: str, bank_name: str) -> Optional[str]:
         """Use Replicate AI to extract amount from email text"""
         if not self.categorizer:
             return None
@@ -1069,15 +1222,15 @@ class SBIEmailExtractor:
             }
             
             prompt = f"""
-            Extract the transaction amount from this SBI bank transaction alert email. 
+            Extract the transaction amount from this {bank_name} bank transaction alert email. 
             
             Look for patterns like:
-            - "Amount (INR)149.00"
+            - "Amount (INR)149.00" or "Amount (USD)149.00"
             - "Amount: 149.00"
-            - "Rs. 149.00"
-            - "₹ 149.00"
-            - "Debited for Rs 149.00"
-            - "Transaction Amount: INR 149.00"
+            - "Rs. 149.00" or "$149.00"
+            - "₹ 149.00" or "$ 149.00"
+            - "Debited for Rs 149.00" or "Debited for $149.00"
+            - "Transaction Amount: INR 149.00" or "Transaction Amount: USD 149.00"
             
             Return ONLY the numeric amount with decimal (e.g., "149.00").
             If multiple amounts are present, return the main transaction amount (not fees or balances).
@@ -1090,7 +1243,7 @@ class SBIEmailExtractor:
             data = {
                 "input": {
                     "prompt": prompt,
-                    "system_prompt": "You are an expert at extracting financial amounts from SBI bank transaction alert emails. Look carefully for transaction amounts in various formats. Return only the numeric value with decimal places, ignoring any fees or balance amounts."
+                    "system_prompt": f"You are an expert at extracting financial amounts from {bank_name} bank transaction alert emails. Look carefully for transaction amounts in various formats. Return only the numeric value with decimal places, ignoring any fees or balance amounts."
                 }
             }
             
@@ -1142,16 +1295,16 @@ class SBIEmailExtractor:
         
         return None
     
-    def extract_amount_regex(self, email_text: str) -> List[str]:
+    def extract_amount_regex(self, email_text: str, bank_name: str) -> List[str]:
         """Fallback method to extract amounts using regex"""
         patterns = [
-            r'Amount\s*\(INR\)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
+            r'Amount\s*\([A-Z]{3}\)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
             r'Amount\s*:\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'Rs\.?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'INR\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'₹\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'Debited for Rs\.?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'Transaction Amount:\s*INR\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
+            r'(?:Rs\.?|\$)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
+            r'(?:INR|USD)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
+            r'(?:₹|\$)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
+            r'Debited for (?:Rs\.?|\$)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
+            r'Transaction Amount:\s*(?:INR|USD)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
             r'(\d{1,6}\.\d{2})',
         ]
         
@@ -1178,11 +1331,11 @@ class SBIEmailExtractor:
         return filtered_amounts
     
     def process_emails(self, max_emails: int = 50, progress_callback=None) -> List[Dict]:
-        """Main method to process all SBI emails and extract amounts with AI categorization"""
+        """Main method to process all bank emails and extract amounts with AI categorization"""
         results = []
         
         try:
-            message_ids = self.search_sbi_emails(max_emails)
+            message_ids = self.search_bank_emails(max_emails)
             
             for i, message_id in enumerate(message_ids):
                 if progress_callback:
@@ -1193,10 +1346,10 @@ class SBIEmailExtractor:
                     continue
                 
                 # Extract amount using AI
-                ai_amount = self.extract_amount_with_ai(email_data['full_text'])
+                ai_amount = self.extract_amount_with_ai(email_data['full_text'], email_data['bank'])
                 
                 # Fallback to regex
-                regex_amounts = self.extract_amount_regex(email_data['full_text'])
+                regex_amounts = self.extract_amount_regex(email_data['full_text'], email_data['bank'])
                 
                 # Use AI amount if available, otherwise use first regex amount
                 final_amount = ai_amount if ai_amount and ai_amount != 'NO_AMOUNT_FOUND' else (regex_amounts[0] if regex_amounts else None)
@@ -1206,7 +1359,8 @@ class SBIEmailExtractor:
                     category = self.categorizer.categorize_transaction_with_ai(
                         email_data['subject'], 
                         email_data['body'], 
-                        final_amount or ''
+                        final_amount or '',
+                        email_data['bank']
                     )
                 else:
                     category = 'Other'
@@ -1214,6 +1368,7 @@ class SBIEmailExtractor:
                 result = {
                     'message_id': email_data['message_id'],
                     'date': email_data['date'],
+                    'bank': email_data['bank'],
                     'subject': email_data['subject'],
                     'sender': email_data['sender'],
                     'amount': final_amount,
@@ -1261,7 +1416,7 @@ def create_visualizations(df, categorizer):
     
     if len(df_filtered) == 0:
         st.warning("No transactions found in the selected date range.")
-        return None, None, None, None
+        return None, None, None, None, None, None, None
     
     # Get the color map from categorizer
     color_map = {cat: categorizer.get_category_color(cat) for cat in df_filtered['category'].unique()}
@@ -1315,26 +1470,145 @@ def create_visualizations(df, categorizer):
         color_discrete_map=color_map
     )
     
-    return fig_pie, fig_bar, fig_timeline, fig_monthly
+    # Bank-wise spending
+    bank_spending = df_filtered.groupby('bank')['amount_numeric'].sum().reset_index()
+    fig_bank = px.pie(
+        bank_spending,
+        names='bank',
+        values='amount_numeric',
+        title='Spending Distribution by Bank',
+        color='bank'
+    )
+    
+    # Weekly spending heatmap
+    df_filtered['weekday'] = df_filtered['date_parsed'].dt.day_name()
+    df_filtered['week'] = df_filtered['date_parsed'].dt.isocalendar().week
+    df_filtered['year'] = df_filtered['date_parsed'].dt.year
+    
+    # Create heatmap data
+    heatmap_data = df_filtered.groupby(['weekday', 'week'])['amount_numeric'].sum().reset_index()
+    
+    # Order weekdays properly
+    weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    heatmap_data['weekday'] = pd.Categorical(heatmap_data['weekday'], categories=weekday_order, ordered=True)
+    heatmap_data = heatmap_data.sort_values('weekday')
+    
+    fig_heatmap = px.density_heatmap(
+        heatmap_data,
+        x='week',
+        y='weekday',
+        z='amount_numeric',
+        title='Weekly Spending Heatmap',
+        color_continuous_scale='Blues'
+    )
+    
+    # Daily spending pattern
+    df_filtered['hour'] = df_filtered['date_parsed'].dt.hour
+    hourly_spending = df_filtered.groupby('hour')['amount_numeric'].sum().reset_index()
+    
+    fig_hourly = px.bar(
+        hourly_spending,
+        x='hour',
+        y='amount_numeric',
+        title='Hourly Spending Pattern',
+        color_discrete_sequence=['#00CEC9']
+    )
+    
+    return fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly
+
+def create_metric_card(title, value, delta=None):
+    """Helper function to create a metric card"""
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-title">{title}</div>
+        <div class="metric-value">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def display_transaction_card(row, categorizer):
+    """Display a transaction as a card"""
+    amount_color = "#FF6B6B" if float(row['amount_numeric']) < 0 else "#4CAF50"
+    category_color = categorizer.get_category_color(row['category'])
+    
+    st.markdown(f"""
+    <div class="transaction-card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <div class="transaction-date">{row['date_parsed'].strftime('%b %d, %Y %I:%M %p')}</div>
+                <div class="transaction-merchant">{row['subject'][:50]}</div>
+            </div>
+            <div class="transaction-amount" style="color: {amount_color};">${abs(float(row['amount_numeric'])):,.2f}</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+            <div>
+                <span class="category-tag" style="background-color: {category_color}; color: white;">{row['category']}</span>
+                <span style="font-size: 12px; color: #6c757d;">{row['bank']}</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 def main():
     """Main Streamlit app"""
     
-    st.title("🏦 SBI Transaction Analyzer")
-    st.markdown("### Extract and analyze your SBI bank transaction alerts with AI-powered categorization")
-
-    st.markdown("---")
-    st.markdown("Made by [Tanish Mittal](https://tanishmittal.com/)")
+    st.markdown("""
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+        <h1 style="margin: 0;">🏦 Multi-Bank Transaction Analyzer</h1>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <p style="font-size: 16px; color: #6c757d;">
+    Extract and analyze your bank transaction alerts with AI-powered categorization and spending insights
+    </p>
+    """, unsafe_allow_html=True)
+    
+    # Add image here (only shown when not authenticated)
+    if not st.session_state.authenticated:
+        # Using a banking/finance themed image from Unsplash
+        st.image(
+            "https://tanishmittal.com/wp-content/uploads/2025/06/Expense-Tracker.png",
+            caption="AI-powered transaction analysis",
+            use_container_width=True
+        )
+        
+        # Supported banks section
+        st.markdown("### Supported Banks:")
+        cols = st.columns(2)
+        with cols[0]:
+            st.markdown("""
+            - SBI
+            - Chase
+            - Bank of America
+            - Citi Bank
+            - Wells Fargo
+            - Capital One
+            - American Express
+            """)
+        with cols[1]:
+            st.markdown("""
+            - Discover
+            - Synchrony Bank
+            - US Bank
+            - PNC Bank
+            - Truist
+            - Ally Bank
+            - SoFi
+            - PayPal
+            - Venmo
+            - TD Bank
+            - Charles Schwab
+            """)
 
     
     # Initialize configuration manager
     config_manager = ConfigManager()
     
     # Sidebar for authentication and configuration
-    st.sidebar.header("Authentication")
+    st.sidebar.header("🔐 Authentication")
 
     if not st.session_state.authenticated:
-        st.sidebar.info("Please login with your Gmail credentials to analyze SBI transactions")
+        st.sidebar.info("Please login with your Gmail credentials to analyze bank transactions")
         
         # Email and password input
         with st.sidebar.form("login_form"):
@@ -1350,7 +1624,7 @@ def main():
                 help="Use App Password if 2FA is enabled"
             )
             
-            login_button = st.form_submit_button("🔐 Login", type="primary")
+            login_button = st.form_submit_button("Login", type="primary")
             
             if login_button:
                 if not email_address or not password:
@@ -1360,7 +1634,7 @@ def main():
                     config_manager.display_config_status()
                 else:
                     with st.spinner("Authenticating..."):
-                        extractor = SBIEmailExtractor(config_manager)
+                        extractor = BankEmailExtractor(config_manager)
                         success, user_email = extractor.authenticate_gmail(email_address, password)
                         if success:
                             st.session_state.authenticated = True
@@ -1384,7 +1658,7 @@ def main():
     else:
         st.sidebar.success(f"✅ Logged in as: {st.session_state.user_email}")
         
-        if st.sidebar.button("🚪 Logout"):
+        if st.sidebar.button("Logout"):
             # Clear authentication state
             st.session_state.authenticated = False
             st.session_state.user_email = None
@@ -1400,15 +1674,15 @@ def main():
 
     # Only show configuration and other options if authenticated
     if st.session_state.authenticated:
-        st.sidebar.header("Configuration")
+        st.sidebar.header("⚙️ Configuration")
         config_manager.display_config_status()
         
         # Settings
-        st.sidebar.subheader("Analysis Settings")
-        max_emails = st.sidebar.slider("Max Emails to Process", 5, 100, 20)
+        st.sidebar.subheader("🔧 Analysis Settings")
+        max_emails = st.sidebar.slider("Max Emails to Process", 5, 100, 20, help="Limit the number of emails to analyze for faster processing")
 
         # Date Range Filter
-        st.sidebar.subheader("Date Range Filter")
+        st.sidebar.subheader("📅 Date Range Filter")
         
         # Initialize date filter state if not exists
         if 'date_filter_enabled' not in st.session_state:
@@ -1449,14 +1723,13 @@ def main():
             st.session_state.date_filter_end = end_date
             
             # Show current filter status
-            st.sidebar.info(f"Filtering: {start_date} to {end_date}")
+            st.sidebar.info(f"Filtering: {start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}")
         else:
             # Clear date filter from session state when disabled
             if 'date_filter_start' in st.session_state:
                 del st.session_state['date_filter_start']
             if 'date_filter_end' in st.session_state:
-                del st.session_state['date_filter_end']
-        
+                del st.session_state['date_filter_end']        
         # Main content area
         if not config_manager.validate_config():
             st.error("⚠️ Configuration incomplete!")
@@ -1464,7 +1737,7 @@ def main():
             return
         
         # Process transactions button
-        if st.button("🔍 Analyze SBI Transactions", type="primary"):
+        if st.button("🔍 Analyze Bank Transactions", type="primary", use_container_width=True):
             with st.spinner(f"Processing up to {max_emails} emails..."):
                 
                 # Create progress bar
@@ -1480,7 +1753,7 @@ def main():
                 if 'extractor' in st.session_state:
                     extractor = st.session_state.extractor
                 else:
-                    extractor = SBIEmailExtractor(config_manager)
+                    extractor = BankEmailExtractor(config_manager)
                     # Re-authenticate
                     success, _ = extractor.authenticate_gmail(st.session_state.user_email, "")
                     if not success:
@@ -1500,7 +1773,7 @@ def main():
                     st.session_state.categorizer = extractor.categorizer
                     st.success(f"✅ Successfully processed {len(results)} transaction emails!")
                 else:
-                    st.warning("No SBI transaction emails found or processed.")
+                    st.warning("No bank transaction emails found or processed.")
         
         # Display results if available
         if st.session_state.get('results_processed', False) and 'transaction_data' in st.session_state:
@@ -1530,29 +1803,46 @@ def main():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Total Transactions", len(df_display))
+                create_metric_card("Total Transactions", len(df_display))
             
             with col2:
                 total_amount = df_display['amount_numeric'].sum()
-                st.metric("Total Amount", f"₹{total_amount:,.2f}")
+                create_metric_card("Total Amount", f"${total_amount:,.2f}")
             
             with col3:
                 avg_amount = df_display['amount_numeric'].mean()
-                st.metric("Average Amount", f"₹{avg_amount:,.2f}")
+                create_metric_card("Average Amount", f"${avg_amount:,.2f}")
             
             with col4:
                 date_range = df_display['date_parsed'].max() - df_display['date_parsed'].min()
-                st.metric("Date Range", f"{date_range.days} days")
+                create_metric_card("Date Range", f"{date_range.days} days")
+            
+            # Recent transactions preview
+            st.header("🔄 Recent Transactions")
+            
+            # Display last 5 transactions as cards
+            recent_transactions = df_display.sort_values('date_parsed', ascending=False).head(5)
+            
+            for _, row in recent_transactions.iterrows():
+                display_transaction_card(row, categorizer)
             
             # Create visualizations
             st.header("📈 Transaction Analysis")
             
             if len(df_display) > 0:
-                fig_pie, fig_bar, fig_timeline, fig_monthly = create_visualizations(df, categorizer)
+                fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly = create_visualizations(df, categorizer)
                 
                 if fig_pie:
                     # Display charts in tabs
-                    tab1, tab2, tab3, tab4 = st.tabs(["Category Distribution", "Amount by Category", "Timeline", "Monthly Trends"])
+                    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+                        "Category Distribution", 
+                        "Amount by Category", 
+                        "Timeline", 
+                        "Monthly Trends",
+                        "Bank Distribution",
+                        "Weekly Pattern",
+                        "Hourly Pattern"
+                    ])
                     
                     with tab1:
                         st.plotly_chart(fig_pie, use_container_width=True)
@@ -1565,15 +1855,24 @@ def main():
                     
                     with tab4:
                         st.plotly_chart(fig_monthly, use_container_width=True)
+                    
+                    with tab5:
+                        st.plotly_chart(fig_bank, use_container_width=True)
+                    
+                    with tab6:
+                        st.plotly_chart(fig_heatmap, use_container_width=True)
+                    
+                    with tab7:
+                        st.plotly_chart(fig_hourly, use_container_width=True)
             
             # Category breakdown
             st.header("🏷️ Category Breakdown")
             
             category_summary = df_display.groupby('category').agg({
-                'amount_numeric': ['count', 'sum', 'mean']
+                'amount_numeric': ['count', 'sum', 'mean', 'max', 'min']
             }).round(2)
             
-            category_summary.columns = ['Count', 'Total Amount', 'Average Amount']
+            category_summary.columns = ['Count', 'Total Amount', 'Average Amount', 'Max Amount', 'Min Amount']
             category_summary = category_summary.sort_values('Total Amount', ascending=False)
             
             # Add color coding
@@ -1584,52 +1883,101 @@ def main():
             styled_summary = category_summary.style.apply(color_categories, axis=1)
             st.dataframe(styled_summary, use_container_width=True)
             
+            # Bank breakdown
+            st.header("🏦 Bank Breakdown")
+            
+            bank_summary = df_display.groupby('bank').agg({
+                'amount_numeric': ['count', 'sum', 'mean', 'max', 'min']
+            }).round(2)
+            
+            bank_summary.columns = ['Count', 'Total Amount', 'Average Amount', 'Max Amount', 'Min Amount']
+            bank_summary = bank_summary.sort_values('Total Amount', ascending=False)
+            
+            st.dataframe(bank_summary, use_container_width=True)
+            
             # Detailed transaction table
             st.header("📋 Transaction Details")
             
             # Add filters
-            col1, col2 = st.columns(2)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
+                selected_banks = st.multiselect(
+                    "Filter by Bank",
+                    options=df_display['bank'].unique(),
+                    default=df_display['bank'].unique()
+                )
+            
+            with col2:
                 selected_categories = st.multiselect(
                     "Filter by Category",
                     options=df_display['category'].unique(),
                     default=df_display['category'].unique()
                 )
             
-            with col2:
+            with col3:
                 amount_filter = st.selectbox(
-                    "Amount Filter",
-                    ["All", "< ₹100", "₹100-₹1000", "₹1000-₹10000", "> ₹10000"]
+                    "Amount Range",
+                    ["All", "< $100", "$100-$500", "$500-$1000", "$1000-$5000", "> $5000"]
+                )
+            
+            with col4:
+                sort_option = st.selectbox(
+                    "Sort By",
+                    ["Date (Newest)", "Date (Oldest)", "Amount (High)", "Amount (Low)"]
                 )
             
             # Apply filters
-            filtered_df = df_display[df_display['category'].isin(selected_categories)]
+            filtered_df = df_display[
+                (df_display['bank'].isin(selected_banks)) & 
+                (df_display['category'].isin(selected_categories))
+            ]
             
             if amount_filter != "All":
-                if amount_filter == "< ₹100":
+                if amount_filter == "< $100":
                     filtered_df = filtered_df[filtered_df['amount_numeric'] < 100]
-                elif amount_filter == "₹100-₹1000":
+                elif amount_filter == "$100-$500":
                     filtered_df = filtered_df[(filtered_df['amount_numeric'] >= 100) & 
+                                            (filtered_df['amount_numeric'] < 500)]
+                elif amount_filter == "$500-$1000":
+                    filtered_df = filtered_df[(filtered_df['amount_numeric'] >= 500) & 
                                             (filtered_df['amount_numeric'] < 1000)]
-                elif amount_filter == "₹1000-₹10000":
+                elif amount_filter == "$1000-$5000":
                     filtered_df = filtered_df[(filtered_df['amount_numeric'] >= 1000) & 
-                                            (filtered_df['amount_numeric'] < 10000)]
-                elif amount_filter == "> ₹10000":
-                    filtered_df = filtered_df[filtered_df['amount_numeric'] >= 10000]
+                                            (filtered_df['amount_numeric'] < 5000)]
+                elif amount_filter == "> $5000":
+                    filtered_df = filtered_df[filtered_df['amount_numeric'] >= 5000]
             
-            # Display filtered results
-            display_columns = ['date_parsed', 'subject', 'amount', 'category', 'email_body_preview']
-            display_df = filtered_df[display_columns].copy()
-            display_df['date_parsed'] = display_df['date_parsed'].dt.strftime('%Y-%m-%d %H:%M')
-            display_df.columns = ['Date', 'Subject', 'Amount', 'Category', 'Preview']
+            # Apply sorting
+            if sort_option == "Date (Newest)":
+                filtered_df = filtered_df.sort_values('date_parsed', ascending=False)
+            elif sort_option == "Date (Oldest)":
+                filtered_df = filtered_df.sort_values('date_parsed', ascending=True)
+            elif sort_option == "Amount (High)":
+                filtered_df = filtered_df.sort_values('amount_numeric', ascending=False)
+            elif sort_option == "Amount (Low)":
+                filtered_df = filtered_df.sort_values('amount_numeric', ascending=True)
             
-            st.dataframe(display_df, use_container_width=True)
+            # Display view options
+            view_option = st.radio("View Mode", ["Cards", "Table"], horizontal=True)
+            
+            if view_option == "Cards":
+                # Display as cards
+                for _, row in filtered_df.iterrows():
+                    display_transaction_card(row, categorizer)
+            else:
+                # Display as table
+                display_columns = ['date_parsed', 'bank', 'subject', 'amount', 'category', 'email_body_preview']
+                display_df = filtered_df[display_columns].copy()
+                display_df['date_parsed'] = display_df['date_parsed'].dt.strftime('%Y-%m-%d %H:%M')
+                display_df.columns = ['Date', 'Bank', 'Subject', 'Amount', 'Category', 'Preview']
+                
+                st.dataframe(display_df, use_container_width=True)
             
             # Export functionality
             st.header("💾 Export Data")
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 # Export to CSV
@@ -1637,7 +1985,7 @@ def main():
                 st.download_button(
                     label="📥 Download as CSV",
                     data=csv_data,
-                    file_name=f"sbi_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"bank_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
             
@@ -1647,7 +1995,17 @@ def main():
                 st.download_button(
                     label="📊 Download Summary",
                     data=summary_data,
-                    file_name=f"sbi_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"bank_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+            
+            with col3:
+                # Export all data
+                all_data = df.to_csv(index=False)
+                st.download_button(
+                    label="📂 Download All Data",
+                    data=all_data,
+                    file_name=f"bank_all_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
         
@@ -1656,26 +2014,33 @@ def main():
             st.header("🚀 How to Use")
             
             st.markdown("""
-### Steps to Analyze Your SBI Transactions:
+### Steps to Analyze Your Bank Transactions:
             
 1. **Authentication**: Login with your Gmail credentials in the sidebar
 2. **Settings**: Adjust the number of emails to process (5-100)
 3. **Date Filter**: Optionally enable date filtering to analyze specific periods
-4. **Analysis**: Click "Analyze SBI Transactions" to start processing
+4. **Analysis**: Click "Analyze Bank Transactions" to start processing
+
+### Supported Banks:
+- SBI, Chase, Bank of America, Citi Bank, Wells Fargo
+- Capital One, American Express, Discover, Synchrony Bank
+- US Bank, PNC Bank, Truist, Ally Bank, SoFi
+- PayPal, Venmo, TD Bank, Charles Schwab
 
 ### Features:
 - 🤖 **AI-Powered Categorization**: Automatically categorizes transactions using advanced AI
 - 📊 **Visual Analytics**: Interactive charts and graphs
-- 🔍 **Smart Filtering**: Filter by category, amount, and date range
+- 🔍 **Smart Filtering**: Filter by bank, category, amount, and date range
 - 📈 **Trend Analysis**: Monthly spending patterns and timeline views
 - 💾 **Export Options**: Download data as CSV for further analysis
+- ➕ **Manual Transactions**: Add transactions manually or import from CSV
 
 ### Requirements:
-- Gmail account with SBI transaction alert emails
+- Gmail account with bank transaction alert emails
 - App Password if 2FA is enabled on Gmail
 """)
             
-            st.info("💡 Make sure you have SBI transaction alert emails in your Gmail inbox from 'donotreply.sbiatm@alerts.sbi.co.in'")
+            st.info("💡 Make sure you have transaction alert emails from supported banks in your Gmail inbox")
 
 if __name__ == "__main__":
     main()
