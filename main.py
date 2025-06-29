@@ -25,8 +25,8 @@ load_dotenv('.secret')
 
 # Set page config
 st.set_page_config(
-    page_title="Bank Spend Tracker/Analyzer",
-    page_icon="🏦",
+    page_title="Expense Tracker",
+    page_icon="💳",
     layout="wide",
     initial_sidebar_state="expanded"
 )
