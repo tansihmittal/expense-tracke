@@ -1553,7 +1553,7 @@ def main():
     
     st.markdown("""
     <div style="display: flex; align-items: center; margin-bottom: 20px;">
-        <h1 style="margin: 0;">🏦 Multi-Bank Transaction Analyzer</h1>
+        <h1 style="margin: 0;">🏦 Expense Tracker</h1>
     </div>
     """, unsafe_allow_html=True)
     
