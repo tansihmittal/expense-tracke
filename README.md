@@ -1,10 +1,10 @@
-# SBI Transaction Analyzer
+#  Transaction Analyzer
 
-Transform your SBI transaction emails into powerful financial insights with AI-powered categorization and beautiful analytics.
+Transform your  transaction emails into powerful financial insights with AI-powered categorization and beautiful analytics.
 
 ## 🚀 Overview
 
-SBI Transaction Analyzer is a comprehensive financial analytics tool that automatically processes your SBI card transaction emails from Gmail, categorizes them using advanced AI algorithms, and presents beautiful visual insights to help you understand your spending patterns.
+ Transaction Analyzer is a comprehensive financial analytics tool that automatically processes your card transaction emails from Gmail, categorizes them using advanced AI algorithms, and presents beautiful visual insights to help you understand your spending patterns.
 
 ## ✨ Features
 
@@ -53,14 +53,14 @@ SBI Transaction Analyzer is a comprehensive financial analytics tool that automa
 - Focus on particular months or quarters
 
 ### Step 4: Analysis
-- Click "Analyze SBI Transactions" to start processing
+- Click "Analyze  Transactions" to start processing
 - AI automatically categorizes and analyzes your transactions
 
 ## 📋 Requirements
 
-- **Gmail Account**: Must contain SBI transaction alert emails
+- **Gmail Account**: Must contain  transaction alert emails
 - **App Password**: Required if 2-Factor Authentication (2FA) is enabled on Gmail
-- **SBI Card**: Active SBI credit/debit card with email notifications enabled
+- ** Card**: Active  credit/debit card with email notifications enabled
 - **Replicate API Token**: Required for AI-powered transaction categorization
 
 ## 🏷️ Supported Categories
@@ -101,8 +101,8 @@ SBI Transaction Analyzer is a comprehensive financial analytics tool that automa
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/tansihmittal/sbi-track.git
-   cd sbi-track
+   git clone https://github.com/tansihmittal/-track.git
+   cd -track
    ```
 
 2. **Install dependencies**
@@ -153,7 +153,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🌟 Share & Feedback
 
-Love this tool? Share it with friends and colleagues who use SBI cards!
+Love this tool? Share it with friends and colleagues who use  cards!
 
 - **Share**: Help others discover better financial insights
 - **Feedback**: Your input helps us improve continuously
@@ -163,7 +163,7 @@ Love this tool? Share it with friends and colleagues who use SBI cards!
 
 **Live Demo**: https://tanishmittal.com/card-analyze-mvp/
 
-Experience the full power of SBI Transaction Analyzer without any setup!
+Experience the full power of  Transaction Analyzer without any setup!
 
 ---
 
