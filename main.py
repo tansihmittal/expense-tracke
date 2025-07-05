@@ -1027,6 +1027,13 @@ class BankEmailExtractor:
         self.config_manager = config_manager
         self.bank_senders = {
             'SBI': ['donotreply.sbiatm@alerts.sbi.co.in'],
+            'HDFC Bank': ['alerts@hdfcbank.net'],
+            'ICICI Bank': ['alert@icicibank.com', 'credit_cards@icicibank.com'],
+            'Axis Bank': ['alerts@axisbank.com'],
+            'Kotak Mahindra Bank': ['creditcardalerts@kotak.com'],
+            'IDFC FIRST Bank': ['noreply@idfcfirstbank.com'],
+            'Yes Bank': ['alerts@yesbank.in'],
+            'IndusInd Bank': ['transactionalert@indusind.com'],
             'Chase': ['noreply@chase.com'],
             'Bank of America': ['alerts@bankofamerica.com'],
             'Citi Bank': ['alerts@citibank.com'],
@@ -1577,16 +1584,28 @@ def main():
         cols = st.columns(2)
         with cols[0]:
             st.markdown("""
-            - SBI
+            **Indian Banks:**
+            - SBI (Debit/ATM alerts)
+            - HDFC Bank (Card)
+            - ICICI Bank (Card/net banking)
+            - Axis Bank (Transaction alerts)
+            - Kotak Mahindra (Credit cards)
+            - IDFC FIRST Bank
+            - Yes Bank
+            - IndusInd Bank
+            
+            **International Banks:**
             - Chase
             - Bank of America
             - Citi Bank
             - Wells Fargo
-            - Capital One
-            - American Express
             """)
+
         with cols[1]:
             st.markdown("""
+            **International Banks (cont.):**
+            - Capital One
+            - American Express
             - Discover
             - Synchrony Bank
             - US Bank
