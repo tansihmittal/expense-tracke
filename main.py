@@ -1026,33 +1026,25 @@ class BankEmailExtractor:
         """
         self.config_manager = config_manager
         self.bank_senders = {
-        'SBI': ['donotreply.sbiatm@alerts.sbi.co.in'],
-        'HDFC Bank': ['alerts@hdfcbank.net'],
-        'ICICI Bank': ['alert@icicibank.com', 'credit_cards@icicibank.com'],
-        'Axis Bank': ['alerts@axisbank.com'],
-        'Kotak Mahindra Bank': ['creditcardalerts@kotak.com'],
-        'IDFC FIRST Bank': ['noreply@idfcfirstbank.com'],
-        'Yes Bank': ['alerts@yesbank.in'],
-        'IndusInd Bank': ['transactionalert@indusind.com'],
-        # Existing banks...
-        'Chase': ['noreply@chase.com'],
-        'Bank of America': ['alerts@bankofamerica.com'],
-        'Citi Bank': ['alerts@citibank.com'],
-        'Wells Fargo': ['alerts@wellsfargo.com'],
-        'Capital One': ['notifications@capitalone.com'],
-        'American Express': ['DoNotReply@americanexpress.com'],
-        'Discover': ['donotreply@discover.com'],
-        'Synchrony Bank': ['alerts@synchronybank.com'],
-        'US Bank': ['customerservice@usbank.com'],
-        'PNC Bank': ['alerts@pnc.com'],
-        'Truist': ['no-reply@truist.com'],
-        'Ally Bank': ['no-reply@ally.com'],
-        'SoFi': ['support@sofi.com'],
-        'PayPal': ['no-reply@paypal.com'],
-        'Venmo': ['donotreply@venmo.com'],
-        'TD Bank': ['mailer@tdbank.com', 'alerts@td.com'],
-        'Charles Schwab': ['no-reply@schwab.com']
-         }
+            'SBI': ['donotreply.sbiatm@alerts.sbi.co.in'],
+            'Chase': ['noreply@chase.com'],
+            'Bank of America': ['alerts@bankofamerica.com'],
+            'Citi Bank': ['alerts@citibank.com'],
+            'Wells Fargo': ['alerts@wellsfargo.com'],
+            'Capital One': ['notifications@capitalone.com'],
+            'American Express': ['DoNotReply@americanexpress.com'],
+            'Discover': ['donotreply@discover.com'],
+            'Synchrony Bank': ['alerts@synchronybank.com'],
+            'US Bank': ['customerservice@usbank.com'],
+            'PNC Bank': ['alerts@pnc.com'],
+            'Truist': ['no-reply@truist.com'],
+            'Ally Bank': ['no-reply@ally.com'],
+            'SoFi': ['support@sofi.com'],
+            'PayPal': ['no-reply@paypal.com'],
+            'Venmo': ['donotreply@venmo.com'],
+            'TD Bank': ['mailer@tdbank.com', 'alerts@td.com'],
+            'Charles Schwab': ['no-reply@schwab.com']
+        }
         self.mail = None
         
         # Initialize categorizer if token is available
@@ -1580,45 +1572,33 @@ def main():
             use_container_width=True
         )
         
-# Supported banks section
-    st.markdown("### Supported Banks:")
-    cols = st.columns(2)
-    with cols[0]:
-        st.markdown("""
-        **Indian Banks:**
-        - SBI (Debit/ATM alerts)
-        - HDFC Bank (Card)
-        - ICICI Bank (Card/net banking)
-        - Axis Bank (Transaction alerts)
-        - Kotak Mahindra (Credit cards)
-        - IDFC FIRST Bank
-        - Yes Bank
-        - IndusInd Bank
-        
-        **International Banks:**
-        - Chase
-        - Bank of America
-        - Citi Bank
-        - Wells Fargo
-        """)
-
-    with cols[1]:
-        st.markdown("""
-        **International Banks (cont.):**
-        - Capital One
-        - American Express
-        - Discover
-        - Synchrony Bank
-        - US Bank
-        - PNC Bank
-        - Truist
-        - Ally Bank
-        - SoFi
-        - PayPal
-        - Venmo
-        - TD Bank
-        - Charles Schwab
-        """)
+        # Supported banks section
+        st.markdown("### Supported Banks:")
+        cols = st.columns(2)
+        with cols[0]:
+            st.markdown("""
+            - SBI
+            - Chase
+            - Bank of America
+            - Citi Bank
+            - Wells Fargo
+            - Capital One
+            - American Express
+            """)
+        with cols[1]:
+            st.markdown("""
+            - Discover
+            - Synchrony Bank
+            - US Bank
+            - PNC Bank
+            - Truist
+            - Ally Bank
+            - SoFi
+            - PayPal
+            - Venmo
+            - TD Bank
+            - Charles Schwab
+            """)
 
     
     # Initialize configuration manager
@@ -1754,7 +1734,7 @@ def main():
         if not config_manager.validate_config():
             st.error("⚠️ Configuration incomplete!")
             st.error("Please set up your Replicate API token in the `.secret` file.")
-        return
+            return
         
         # Process transactions button
         if st.button("🔍 Analyze Bank Transactions", type="primary", use_container_width=True):
