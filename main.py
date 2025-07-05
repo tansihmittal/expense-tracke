@@ -1581,44 +1581,44 @@ def main():
         )
         
 # Supported banks section
-st.markdown("### Supported Banks:")
-cols = st.columns(2)
-with cols[0]:
-    st.markdown("""
-    **Indian Banks:**
-    - SBI (Debit/ATM alerts)
-    - HDFC Bank (Card)
-    - ICICI Bank (Card/net banking)
-    - Axis Bank (Transaction alerts)
-    - Kotak Mahindra (Credit cards)
-    - IDFC FIRST Bank
-    - Yes Bank
-    - IndusInd Bank
-    
-    **International Banks:**
-    - Chase
-    - Bank of America
-    - Citi Bank
-    - Wells Fargo
-    """)
+    st.markdown("### Supported Banks:")
+    cols = st.columns(2)
+    with cols[0]:
+        st.markdown("""
+        **Indian Banks:**
+        - SBI (Debit/ATM alerts)
+        - HDFC Bank (Card)
+        - ICICI Bank (Card/net banking)
+        - Axis Bank (Transaction alerts)
+        - Kotak Mahindra (Credit cards)
+        - IDFC FIRST Bank
+        - Yes Bank
+        - IndusInd Bank
+        
+        **International Banks:**
+        - Chase
+        - Bank of America
+        - Citi Bank
+        - Wells Fargo
+        """)
 
-with cols[1]:
-    st.markdown("""
-    **International Banks (cont.):**
-    - Capital One
-    - American Express
-    - Discover
-    - Synchrony Bank
-    - US Bank
-    - PNC Bank
-    - Truist
-    - Ally Bank
-    - SoFi
-    - PayPal
-    - Venmo
-    - TD Bank
-    - Charles Schwab
-    """)
+    with cols[1]:
+        st.markdown("""
+        **International Banks (cont.):**
+        - Capital One
+        - American Express
+        - Discover
+        - Synchrony Bank
+        - US Bank
+        - PNC Bank
+        - Truist
+        - Ally Bank
+        - SoFi
+        - PayPal
+        - Venmo
+        - TD Bank
+        - Charles Schwab
+        """)
 
     
     # Initialize configuration manager
@@ -1754,7 +1754,7 @@ with cols[1]:
         if not config_manager.validate_config():
             st.error("⚠️ Configuration incomplete!")
             st.error("Please set up your Replicate API token in the `.secret` file.")
-            return
+        return
         
         # Process transactions button
         if st.button("🔍 Analyze Bank Transactions", type="primary", use_container_width=True):
