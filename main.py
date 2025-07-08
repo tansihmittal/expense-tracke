@@ -31,6 +31,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Add Umami analytics
+st.components.v1.html(
+    """
+    <script defer src="https://cloud.umami.is/script.js" data-website-id="f2976076-3465-4707-9392-b79a25f5c17f"></script>
+    """,
+    height=0,
+)
+
 # Custom CSS for styling
 st.markdown("""
 <style>
