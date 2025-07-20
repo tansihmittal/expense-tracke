@@ -640,7 +640,7 @@ class AITransactionCategorizer:
             Category name
         """
         try:
-            url = "https://api.replicate.com/v1/models/meta/llama-2-13b/predictions"
+            url = "https://api.replicate.com/v1/models/openai/gpt-4o-mini/predictions"
             
             headers = {
                 "Authorization": f"Bearer {self.replicate_token}",
@@ -1229,7 +1229,7 @@ class BankEmailExtractor:
             
         try:
             replicate_token = self.config_manager.get_config_value('REPLICATE_API_TOKEN')
-            url = "https://api.replicate.com/v1/models/meta/llama-2-13b/predictions"
+            url = "https://api.replicate.com/v1/models/openai/gpt-4o-mini/predictions"
             
             headers = {
                 "Authorization": f"Bearer {replicate_token}",
