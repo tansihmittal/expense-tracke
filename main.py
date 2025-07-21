@@ -6,7 +6,7 @@ import requests
 import json
 import os
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional
 import pandas as pd
 import plotly.express as px
@@ -19,27 +19,25 @@ import calendar
 from streamlit_tags import st_tags
 import numpy as np
 from io import StringIO
+from bs4 import BeautifulSoup
+import pytz
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+import time
+import hashlib
 
-# Load environment variables from .secret file
+# Load environment variables
 load_dotenv('.secret')
 
 # Set page config
 st.set_page_config(
-    page_title="Expense Tracker",
+    page_title="AI Expense & Subscription Tracker",
     page_icon="💳",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Add Umami analytics
-st.components.v1.html(
-    """
-    <script defer src="https://cloud.umami.is/script.js" data-website-id="f2976076-3465-4707-9392-b79a25f5c17f"></script>
-    """,
-    height=0,
-)
-
-# Custom CSS for styling
+# Custom CSS for professional styling
 st.markdown("""
 <style>
     .main {
@@ -48,6 +46,7 @@ st.markdown("""
     .stButton>button {
         border-radius: 8px;
         padding: 8px 16px;
+        font-weight: 500;
     }
     .stSelectbox, .stTextInput, .stTextArea, .stDateInput {
         border-radius: 8px;
@@ -58,76 +57,216 @@ st.markdown("""
     }
     .metric-card {
         background-color: white;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 15px;
+        text-align: center;
     }
     .metric-title {
         font-size: 14px;
         color: #6c757d;
-        margin-bottom: 5px;
+        margin-bottom: 8px;
+        font-weight: 500;
     }
     .metric-value {
-        font-size: 24px;
+        font-size: 28px;
         font-weight: bold;
         color: #212529;
     }
     .section-header {
         border-bottom: 2px solid #dee2e6;
-        padding-bottom: 5px;
-        margin-top: 20px;
-        margin-bottom: 15px;
+        padding-bottom: 8px;
+        margin-top: 25px;
+        margin-bottom: 20px;
         color: #495057;
+        font-weight: 600;
     }
-    .bank-logo {
-        max-width: 30px;
-        max-height: 30px;
-        margin-right: 10px;
-        vertical-align: middle;
-    }
-    .category-tag {
-        display: inline-block;
-        padding: 3px 8px;
+    .subscription-card {
+        background-color: white;
         border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        border-left: 4px solid #007bff;
+        transition: transform 0.2s;
+    }
+    .subscription-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    }
+    .subscription-card.trial {
+        border-left-color: #ffc107;
+        background: linear-gradient(135deg, #fff9e6 0%, #ffffff 100%);
+    }
+    .subscription-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .subscription-name {
+        font-size: 20px;
+        font-weight: bold;
+        color: #2c3e50;
+    }
+    .subscription-amount {
+        font-size: 22px;
+        font-weight: bold;
+        color: #e74c3c;
+    }
+    .subscription-amount.trial {
+        color: #ff8c00;
+    }
+    .subscription-details {
+        font-size: 14px;
+        color: #7f8c8d;
+        margin-top: 10px;
+        line-height: 1.4;
+    }
+    .subscription-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 15px;
         font-size: 12px;
-        margin-right: 5px;
-        margin-bottom: 5px;
+        font-weight: bold;
+        margin-left: 10px;
+    }
+    .status-active {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    .status-trial {
+        background-color: #fff3cd;
+        color: #856404;
+    }
+    .status-inactive {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    .next-payment {
+        background-color: #fff3cd;
+        padding: 10px;
+        border-radius: 8px;
+        margin-top: 15px;
+        font-size: 13px;
+        color: #856404;
+        font-weight: 500;
+    }
+    .next-payment.overdue {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    .trial-badge {
+        background: linear-gradient(45deg, #ffc107, #ff8c00);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: bold;
+        margin-left: 10px;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    .subscription-summary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 25px;
+        border-radius: 15px;
+        margin-bottom: 25px;
+    }
+    .summary-stat {
+        text-align: center;
+        margin-bottom: 15px;
+    }
+    .summary-value {
+        font-size: 32px;
+        font-weight: bold;
+    }
+    .summary-label {
+        font-size: 14px;
+        opacity: 0.9;
+        margin-top: 5px;
     }
     .transaction-card {
         background-color: white;
         border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 18px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         margin-bottom: 15px;
+        border-left: 3px solid #28a745;
     }
     .transaction-amount {
-        font-size: 18px;
+        font-size: 20px;
         font-weight: bold;
     }
     .transaction-date {
         font-size: 12px;
         color: #6c757d;
+        font-weight: 500;
     }
     .transaction-merchant {
-        font-weight: 500;
-        margin: 5px 0;
-        color: black;
+        font-weight: 600;
+        margin: 8px 0;
+        color: #2c3e50;
+        font-size: 16px;
     }
-    .transaction-category {
+    .category-tag {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 15px;
         font-size: 12px;
+        margin-right: 8px;
+        margin-bottom: 5px;
+        font-weight: 500;
+    }
+    .service-logo {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        margin-right: 10px;
+        vertical-align: middle;
+    }
+    .success-message {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 15px;
+        border-radius: 8px;
+        margin: 10px 0;
+    }
+    .info-box {
+        background-color: #e3f2fd;
+        border-left: 4px solid #2196f3;
+        padding: 15px;
+        margin: 15px 0;
+        border-radius: 4px;
+    }
+    .warning-box {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 15px;
+        margin: 15px 0;
+        border-radius: 4px;
+        color: #856404;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state for authentication
+# Initialize session state
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_email' not in st.session_state:
     st.session_state.user_email = None
+if 'subscriptions' not in st.session_state:
+    st.session_state.subscriptions = []
 
 class ConfigManager:
-    """Manages configuration and credentials with proper error handling"""
+    """Manages configuration and credentials"""
     
     def __init__(self):
         self.config = self._load_config()
@@ -144,16 +283,11 @@ class ConfigManager:
         return config
     
     def validate_config(self) -> bool:
-        """Validate that all required configuration is present"""
+        """Validate required configuration"""
         self.validation_errors = []
         
-        required_fields = {
-            'REPLICATE_API_TOKEN': 'Replicate API Token'
-        }
-        
-        for key, display_name in required_fields.items():
-            if not self.config.get(key):
-                self.validation_errors.append(f"Missing {display_name}")
+        if not self.config.get('REPLICATE_API_TOKEN'):
+            self.validation_errors.append("Missing Replicate API Token")
         
         return len(self.validation_errors) == 0
     
@@ -161,484 +295,97 @@ class ConfigManager:
         """Get configuration value by key"""
         return self.config.get(key)
     
-    def get_validation_errors(self) -> List[str]:
-        """Get list of validation errors"""
-        return self.validation_errors
-    
     def display_config_status(self):
-        """Display configuration status in Streamlit sidebar only if there are issues"""
-        
-        # Only show configuration status if there are validation errors
+        """Display configuration status if there are issues"""
         if not self.validate_config():
-            st.sidebar.subheader("Configuration Status")
-            
-            config_items = [
-                ("Replicate API Token", self.config.get('REPLICATE_API_TOKEN')),
-                ("Plaid Client ID", self.config.get('PLAID_CLIENT_ID')),
-                ("Plaid Secret", self.config.get('PLAID_SECRET'))
-            ]
-            
-            for name, value in config_items:
-                if value:
-                    st.sidebar.success(f"✅ {name}")
-                else:
-                    st.sidebar.error(f"❌ {name}")
-            
             st.sidebar.error("⚠️ Configuration incomplete")
             with st.sidebar.expander("Setup Instructions"):
                 st.write("""
                 Create a `.secret` file in your project root with:
                 ```
                 REPLICATE_API_TOKEN=your_replicate_token_here
-                PLAID_CLIENT_ID=your_plaid_client_id
-                PLAID_SECRET=your_plaid_secret
-                PLAID_ENV=sandbox
                 ```
                 """)
 
 class AITransactionCategorizer:
-    """AI-powered class to categorize transactions using Replicate API"""
+    """AI-powered transaction categorization with unlimited categories"""
     
     def __init__(self, replicate_token: str):
         self.replicate_token = replicate_token
-        self.categories = {
-            # Banking & Finance
-            'ATM Withdrawal': '#FF6B6B',
-            'Transfer': '#A8E6CF',
-            'Investment': '#FFB347',
-            'Insurance': '#81ECEC',
-            'Banking & Finance': '#00CEC9',
-            'Cryptocurrency': '#F7931A',
-            'Loan Payment': '#8E44AD',
-            'Credit Card': '#E74C3C',
-            
-            # Shopping & Commerce
-            'Online Shopping': '#4ECDC4',
-            'Groceries': '#FD79A8',
-            'Fashion & Beauty': '#FDCB6E',
-            'Electronics': '#3498DB',
-            'Home & Garden': '#27AE60',
-            'Books & Stationery': '#8B4513',
-            
-            # Fashion & Sportswear
-            'Nike': '#000000',
-            'Adidas': '#000000',
-            'Puma': '#000000',
-            'Reebok': '#CF002E',
-            'Under Armour': '#1D1D1B',
-            'New Balance': '#ED1C24',
-            'Converse': '#000000',
-            'Vans': '#000000',
-            'H&M': '#E50000',
-            'Zara': '#000000',
-            'Uniqlo': '#FF0000',
-            'Forever 21': '#000000',
-            
-            # Food & Dining
-            'Food & Dining': '#45B7D1',
-            'Zomato': '#E23744',
-            'Swiggy': '#FC8019',
-            'Uber Eats': '#5FB709',
-            'Dominos': '#0078D4',
-            'McDonalds': '#FFC72C',
-            'KFC': '#F40027',
-            'Pizza Hut': '#00A160',
-            'Burger King': '#D62300',
-            'Subway': '#009639',
-            'Starbucks': '#00704A',
-            'Dunkin': '#FF6600',
-            
-            # Transportation
-            'Transportation': '#96CEB4',
-            'Uber': '#000000',
-            'Ola': '#FFE234',
-            'Rapido': '#FFCC02',
-            'Metro': '#0066CC',
-            'IRCTC': '#FF6B35',
-            'Fuel & Petrol': '#FF4757',
-            'Car Rental': '#2ECC71',
-            'Parking': '#95A5A6',
-            
-            # Web Hosting & Cloud Services
-            'Hostinger': '#673DE6',
-            'GoDaddy': '#1BDBDB',
-            'Bluehost': '#3E5C99',
-            'SiteGround': '#F68B1F',
-            'DigitalOcean': '#0080FF',
-            'AWS': '#FF9900',
-            'Google Cloud': '#4285F4',
-            'Microsoft Azure': '#0078D4',
-            'Cloudflare': '#F38020',
-            'Namecheap': '#DE3910',
-            'Domain Registration': '#8E44AD',
-            
-            # Software & SaaS
-            'Microsoft Office': '#0078D4',
-            'Adobe Creative Cloud': '#FF0000',
-            'Canva': '#00C4CC',
-            'Figma': '#F24E1E',
-            'Slack': '#4A154B',
-            'Zoom': '#2D8CFF',
-            'GitHub': '#181717',
-            'Dropbox': '#0061FF',
-            'Google Workspace': '#4285F4',
-            'Notion': '#000000',
-            'Trello': '#0079BF',
-            'Asana': '#273347',
-            
-            # Streaming Services
-            'Netflix': '#E50914',
-            'Amazon Prime': '#FF9900',
-            'Disney+ Hotstar': '#113CCF',
-            'Zee5': '#6C2C91',
-            'Voot': '#FF6900',
-            'SonyLIV': '#000000',
-            'ALTBalaji': '#FF0066',
-            'MX Player': '#FF6B00',
-            'YouTube Premium': '#FF0000',
-            'Viki': '#00D4AA',
-            'Hulu': '#1CE783',
-            'HBO Max': '#8A2BE2',
-            
-            # Music Streaming
-            'Spotify': '#1DB954',
-            'Apple Music': '#FA57C1',
-            'YouTube Music': '#FF0000',
-            'Amazon Music': '#FF9900',
-            'Gaana': '#FF6600',
-            'JioSaavn': '#02AAB0',
-            'Wynk Music': '#FF0066',
-            'Tidal': '#000000',
-            'Deezer': '#FEAA2D',
-            
-            # Gaming
-            'Steam': '#1B2838',
-            'Epic Games': '#313131',
-            'PlayStation': '#003087',
-            'Xbox': '#107C10',
-            'Google Play Games': '#01875F',
-            'PUBG': '#F99E1A',
-            'Free Fire': '#FF6B35',
-            'Call of Duty': '#000000',
-            'Valorant': '#FF4655',
-            'Fortnite': '#7B68EE',
-            'Roblox': '#00A2FF',
-            'Minecraft': '#62B47A',
-            
-            # E-commerce Platforms
-            'Amazon': '#FF9900',
-            'Flipkart': '#047BD6',
-            'eBay': '#0064D3',
-            'Myntra': '#FF3F6C',
-            'Nykaa': '#FC2779',
-            'BigBasket': '#84C225',
-            'Blinkit': '#FFDE21',
-            'Paytm Mall': '#00BAF2',
-            
-            # Social Media & Communication (Expanded)
-            'WhatsApp Business': '#25D366',
-            'Telegram Premium': '#0088CC',
-            'Discord Nitro': '#5865F2',
-            'Twitter Blue': '#1DA1F2',
-            'LinkedIn Premium': '#0077B5',
-            'Instagram': '#E4405F',
-            'Facebook': '#1877F2',
-            'YouTube Premium': '#FF0000',
-            'TikTok': '#000000',
-            'Snapchat+': '#FFFC00',
-            'Pinterest Business': '#BD081C',
-            'Reddit Premium': '#FF4500',
-            'Clubhouse': '#F1C40F',
-            'Signal': '#3A76F0',
-            'Viber': '#7360F2',
-            'Skype': '#00AFF0',
-            'Google Meet': '#00AC47',
-            'Microsoft Teams': '#6264A7',
-            'GoToMeeting': '#FF6900',
-            'WebEx': '#00BCF2',
-            'Twilio': '#F22F46',
-            'Mailchimp': '#FFE01B',
-            'Constant Contact': '#1F5582',
-            'ConvertKit': '#FB6970',
-            'AWeber': '#2F7BBF',
-            'GetResponse': '#00BAFF',
-            'Campaign Monitor': '#509E2F',
-            
-            # Fitness & Health (Expanded)
-            'Gym Membership': '#E74C3C',
-            'Yoga Classes': '#9B59B6',
-            'Personal Trainer': '#27AE60',
-            'Health Insurance': '#3498DB',
-            'Medical': '#E67E22',
-            'Pharmacy': '#2ECC71',
-            'Fitness Apps': '#E91E63',
-            'Planet Fitness': '#7B2CBF',
-            'LA Fitness': '#FF6B35',
-            'Gold\'s Gym': '#FFD700',
-            '24 Hour Fitness': '#E74C3C',
-            'Anytime Fitness': '#9B2C47',
-            'CrossFit': '#FF6B35',
-            'Orange Theory': '#FF6900',
-            'SoulCycle': '#FFFF00',
-            'Peloton': '#000000',
-            'MyFitnessPal': '#0066FF',
-            'Strava': '#FC4C02',
-            'Fitbit': '#00B0B9',
-            'Garmin': '#007CC3',
-            'Apple Fitness+': '#FA57C1',
-            'Nike Training Club': '#000000',
-            'Headspace': '#FF6B35',
-            'Calm': '#7BC4C4',
-            'Meditation Apps': '#9B59B6',
-            'Teladoc': '#613896',
-            'MDLive': '#00A651',
-            'CVS Health': '#CC0000',
-            'Walgreens': '#E31837',
-            'Rite Aid': '#0066CC',
-            'Dental Care': '#00CED1',
-            'Vision Care': '#4169E1',
-            'Mental Health': '#FF69B4',
-            'Therapy Sessions': '#DA70D6',
-            'Nutritionist': '#32CD32',
-            'Dietician': '#9ACD32',
-            
-            # Education & Learning
-            'Coursera': '#0056D3',
-            'Udemy': '#A435F0',
-            'Skillshare': '#00FF88',
-            'LinkedIn Learning': '#0077B5',
-            'Pluralsight': '#F15B2A',
-            'MasterClass': '#000000',
-            'Khan Academy': '#14BF96',
-            'Duolingo': '#58CC02',
-            'BYJU\'S': '#8E44AD',
-            'Unacademy': '#08BD80',
-            
-            # Utilities & Bills (Expanded)
-            'Electricity': '#F39C12',
-            'Water': '#3498DB',
-            'Gas': '#E67E22',
-            'Internet': '#9B59B6',
-            'Mobile Bill': '#2ECC71',
-            'DTH/Cable': '#E74C3C',
-            'Maintenance': '#95A5A6',
-            'Verizon': '#CD040B',
-            'AT&T': '#00A8E6',
-            'T-Mobile': '#E20074',
-            'Sprint': '#FFCC00',
-            'Comcast Xfinity': '#1F5582',
-            'Spectrum': '#246FDB',
-            'Cox Communications': '#FF6900',
-            'Optimum': '#FF6B35',
-            'Dish Network': '#FF6900',
-            'DIRECTV': '#FF6900',
-            'Sling TV': '#FF6900',
-            'YouTube TV': '#FF0000',
-            'Hulu + Live TV': '#1CE783',
-            'FuboTV': '#00A651',
-            'Philo': '#6B46C1',
-            'ConEd': '#0066CC',
-            'PG&E': '#004B87',
-            'Southern California Edison': '#0066CC',
-            'Duke Energy': '#00529B',
-            'Florida Power & Light': '#FF6900',
-            'Georgia Power': '#FF6900',
-            'Texas Gas Service': '#E67E22',
-            'Waste Management': '#00A651',
-            'Republic Services': '#0066CC',
-            'Recycling Services': '#22C55E',
-            'Home Security': '#DC2626',
-            'ADT': '#FF0000',
-            'Vivint': '#FF6900',
-            'SimpliSafe': '#FF6B35',
-            'Ring': '#FF6900',
-            'Nest': '#0F9D58',
-            'Alarm.com': '#FF6900',
-            'Renters Insurance': '#8B5CF6',
-            'Home Insurance': '#3B82F6',
-            'Property Tax': '#6B7280',
-            'HOA Fees': '#F59E0B',
-            'Condo Fees': '#EF4444',
-            
-            # Travel & Accommodation (Expanded)
-            'Flight Booking': '#3498DB',
-            'Hotel Booking': '#E67E22',
-            'Airbnb': '#FF5A5F',
-            'MakeMyTrip': '#FF4F00',
-            'Booking.com': '#003580',
-            'OYO': '#EE2A24',
-            'Travel Insurance': '#27AE60',
-            'Expedia': '#FFC72C',
-            'Priceline': '#FF6900',
-            'Kayak': '#FF6900',
-            'Orbitz': '#FF6900',
-            'Travelocity': '#1E3A8A',
-            'Hotels.com': '#C8102E',
-            'Hilton': '#0F4C99',
-            'Marriott': '#B8860B',
-            'Hyatt': '#8B0000',
-            'IHG': '#006937',
-            'Choice Hotels': '#FF6900',
-            'Best Western': '#B8860B',
-            'Wyndham': '#0066CC',
-            'Radisson': '#FF6900',
-            'Accor': '#FF6900',
-            'VRBO': '#FF6900',
-            'HomeAway': '#FF6900',
-            'Hostelworld': '#FF6900',
-            'Agoda': '#FF6900',
-            'Trivago': '#FF6900',
-            'Skyscanner': '#FF6900',
-            'Google Flights': '#4285F4',
-            'American Airlines': '#C8102E',
-            'Delta': '#002F5F',
-            'United': '#0033A0',
-            'Southwest': '#FF6900',
-            'JetBlue': '#0033A0',
-            'Alaska Airlines': '#01426A',
-            'Spirit': '#FFFF00',
-            'Frontier': '#00A651',
-            'British Airways': '#075AAA',
-            'Lufthansa': '#05164D',
-            'Air France': '#002F5F',
-            'Emirates': '#C8102E',
-            'Qatar Airways': '#8B0000',
-            'Singapore Airlines': '#003366',
-            'Cathay Pacific': '#00A651',
-            'Hertz': '#FFCC00',
-            'Avis': '#C8102E',
-            'Enterprise': '#00A651',
-            'Budget': '#FF6900',
-            'National': '#00A651',
-            'Alamo': '#FF6900',
-            'Thrifty': '#0066CC',
-            'Dollar': '#00A651',
-            'Zipcar': '#8FBC8F',
-            'Turo': '#FF6900',
-            'Getaround': '#FF6900',
-            'Car2Go': '#00BFFF',
-            'Cruise Lines': '#0066CC',
-            'Royal Caribbean': '#0066CC',
-            'Carnival': '#C8102E',
-            'Norwegian': '#0066CC',
-            'Princess': '#8B0000',
-            'Celebrity': '#FF6900',
-            'MSC': '#0066CC',
-            'Disney Cruise': '#113CCF',
-            'Train Booking': '#FF6900',
-            'Amtrak': '#FF6900',
-            'Eurostar': '#0066CC',
-            'Eurail': '#00A651',
-            'Bus Booking': '#FF6900',
-            'Greyhound': '#0066CC',
-            'Megabus': '#0066CC',
-            'FlixBus': '#00A651',
-            'Travel Gear': '#8B4513',
-            'Luggage': '#654321',
-            'Travel Accessories': '#A0522D',
-            'Passport Services': '#4B0082',
-            'Visa Services': '#8B0000',
-            'Currency Exchange': '#FFD700',
-            'Travel Guides': '#FF6347',
-            'Travel Photography': '#FF1493',
-            
-            # Professional Services (Expanded)
-            'Legal Services': '#34495E',
-            'Accounting': '#16A085',
-            'Consulting': '#8E44AD',
-            'Marketing': '#E74C3C',
-            'Design Services': '#F39C12',
-            'LegalZoom': '#1E3A8A',
-            'Rocket Lawyer': '#DC2626',
-            'Upwork': '#14A800',
-            'Fiverr': '#1DBF73',
-            'Freelancer': '#0E7DC2',
-            '99designs': '#FF6900',
-            'Dribbble': '#EA4C89',
-            'Behance': '#1769FF',
-            'QuickBooks': '#2CA01C',
-            'FreshBooks': '#0E7DC2',
-            'Xero': '#13B5EA',
-            'TurboTax': '#CD2C2E',
-            'H&R Block': '#00A651',
-            'TaxAct': '#FF6B35',
-            'CPA Services': '#16A085',
-            'Notary Services': '#6B46C1',
-            'Business Registration': '#059669',
-            'Trademark Services': '#7C3AED',
-            'Patent Services': '#1D4ED8',
-            
-            # Cryptocurrency & Fintech (Expanded)
-            'Coinbase': '#0052FF',
-            'Binance': '#F3BA2F',
-            'PayPal': '#00457C',
-            'Stripe': '#635BFF',
-            'Razorpay': '#528FF0',
-            'Paytm': '#00BAF2',
-            'PhonePe': '#5F259F',
-            'Google Pay': '#34A853',
-            'Kraken': '#5741D9',
-            'Gemini': '#00DCFA',
-            'FTX': '#5FCADE',
-            'Crypto.com': '#003D7A',
-            'KuCoin': '#24AE8F',
-            'Huobi': '#2E7CFF',
-            'OKX': '#000000',
-            'Bitfinex': '#2B6F2B',
-            'Bybit': '#F7A600',
-            'Gate.io': '#64748B',
-            'Robinhood': '#00C805',
-            'Webull': '#1348CC',
-            'E*TRADE': '#00529B',
-            'TD Ameritrade': '#00A651',
-            'Charles Schwab': '#00A3E0',
-            'Fidelity': '#00703C',
-            'Vanguard': '#B91C1C',
-            'Wealthfront': '#5A67D8',
-            'Betterment': '#2E5BFF',
-            'Acorns': '#7CB342',
-            'Stash': '#30D158',
-            'M1 Finance': '#3B82F6',
-            'SoFi': '#00314E',
-            'Chime': '#00A651',
-            'Ally Bank': '#A855F7',
-            'Capital One': '#004C9B',
-            'Venmo': '#008CFF',
-            'Zelle': '#6B1F7B',
-            'Cash App': '#00D632',
-            'Apple Pay': '#007AFF',
-            'Samsung Pay': '#1F4788',
-            'Wise (TransferWise)': '#37517E',
-            'Remitly': '#5A67D8',
-            'Western Union': '#FFCC00',
-            'MoneyGram': '#005BAA',
-            
-            # General Categories
-            'Utilities': '#FFEAA7',
-            'Entertainment': '#E17055',
-            'Healthcare': '#F8BBD9',
-            'Travel': '#74B9FF',
-            'Education': '#6C5CE7',
-            'Work & Professional': '#FF8C42',
-            'Subscriptions': '#E17055',
-            'Charity & Donations': '#27AE60',
-            'Pet Care': '#FF6B9D',
-            'Other': '#D3D3D3'
-                            }       
-    
-    def categorize_transaction_with_ai(self, subject: str, body: str, amount: str, bank_name: str) -> str:
-        """
-        Use AI to categorize transactions intelligently
+        self.category_colors = {}
+        self.vendor_cache = {}
+        self.subscription_indicators = {
+            'netflix', 'prime video', 'disney', 'hotstar', 'zee5', 'youtube', 'spotify', 'apple music',
+            'adobe', 'microsoft', 'google workspace', 'zoom', 'slack', 'notion', 'dropbox',
+            'aws', 'azure', 'google cloud', 'digitalocean',
+            'subscription', 'monthly', 'yearly', 'recurring', 'auto-renewal'
+        }
         
-        Args:
-            subject: Email subject
-            body: Email body
-            amount: Transaction amount
-            bank_name: Name of the bank
+        # Improved color palette for better distribution
+        self.color_palette = [
+            '#E50914', '#4285F4', '#FF6B35', '#4CAF50', '#9C27B0', '#FF5722',
+            '#00BCD4', '#FFC107', '#795548', '#607D8B', '#3F51B5', '#009688',
+            '#8BC34A', '#CDDC39', '#FFEB3B', '#FF9800', '#FF5252', '#536DFE',
+            '#1DB954', '#00A3E0', '#F7931E', '#FF4444', '#6C5CE7', '#74B9FF',
+            '#A29BFE', '#FD79A8', '#FDCB6E', '#6C757D', '#E17055', '#2D3436'
+        ]
+        self.color_index = 0
+        
+        # Initialize with predefined service colors
+        self._initialize_service_colors()
+    
+    def _initialize_service_colors(self):
+        """Initialize with predefined colors for common services"""
+        predefined_colors = {
+            'netflix': '#E50914',
+            'youtube': '#FF0000',
+            'spotify': '#1DB954',
+            'google cloud': '#4285F4',
+            'microsoft': '#0078D4',
+            'adobe': '#FF0000',
+            'amazon': '#FF9900',
+            'uber': '#000000',
+            'zomato': '#E23744',
+            'swiggy': '#FC8019',
+            'food delivery': '#FF6B35',
+            'streaming services': '#E50914',
+            'saas services': '#4285F4',
+            'cloud platform': '#4285F4',
+            'video streaming': '#E50914',
+            'music streaming': '#1DB954'
+        }
+        
+        for service, color in predefined_colors.items():
+            self.category_colors[service.lower()] = color
+    
+    def get_next_color(self) -> str:
+        """Get next color from palette"""
+        color = self.color_palette[self.color_index % len(self.color_palette)]
+        self.color_index += 1
+        return color
+    
+    def clean_html_content(self, html_content: str) -> str:
+        """Clean HTML content and extract meaningful text"""
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
             
-        Returns:
-            Category name
-        """
+            for script in soup(["script", "style"]):
+                script.decompose()
+            
+            text = soup.get_text()
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = ' '.join(chunk for chunk in chunks if chunk)
+            
+            return text[:1200]
+            
+        except Exception:
+            clean_text = re.sub(r'<[^>]+>', ' ', html_content)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+            return clean_text[:1200]
+    
+    def analyze_transaction_complete(self, subject: str, body: str, bank_name: str) -> Dict:
+        """Complete AI analysis of transaction"""
         try:
             url = "https://api.replicate.com/v1/models/openai/gpt-4o-mini/predictions"
             
@@ -647,78 +394,33 @@ class AITransactionCategorizer:
                 "Content-Type": "application/json"
             }
             
-            # Create a comprehensive prompt for AI categorization
-            transaction_text = f"Bank: {bank_name}\nSubject: {subject}\nBody: {body}\nAmount: {amount}"
+            subject_clean = subject[:100]
+            body_clean = self.clean_html_content(body)
             
-            # Get all available subcategories (keys in our categories dict)
-            subcategories_list = list(self.categories.keys())
-            
-            prompt = f"""
-                You are a financial transaction categorization expert. Analyze the transaction below and assign it to exactly ONE subcategory from this list:
+            prompt = f"""Analyze this bank transaction email from {bank_name}:
 
-                {', '.join(subcategories_list)}
+Email Content: {body_clean}
 
-                ## Transaction Analysis Guidelines:
-                                ## Transaction Analysis Guidelines:
-
-                **Financial Services:**
-                - ATM Withdrawal: Cash withdrawals, ATM fees
-                - Transfer: UPI, NEFT, RTGS, P2P transfers, money sent to individuals
-                - Investment: Mutual funds, SIPs, stocks, trading platforms, portfolio management
-                - Insurance: All insurance premiums and policy payments
-                - Banking & Finance: Bank fees, loan EMIs, credit card payments, financial services
-                - Cryptocurrency: Bitcoin, Ethereum, crypto exchanges, blockchain transactions
-
-                **Commerce & Shopping:**
-                - Online Shopping: E-commerce platforms, online purchases, marketplace transactions
-                - Groceries: Food items, supermarkets, daily essentials, household supplies
-                - Fashion & Beauty: Clothing, accessories, cosmetics, jewelry, personal care
-                - Electronics: Gadgets, phones, computers, tech accessories, appliances
-
-                **Services & Subscriptions:**
-                - Food & Dining: Restaurants, cafes, food delivery, dining out (NOT groceries)
-                - Transportation: Ride-sharing, fuel, public transport, vehicle services, parking
-                - Utilities: Bills for electricity, water, gas, internet, mobile, DTH/cable
-                - Entertainment: Movies, streaming services, games, concerts, recreational activities
-                - Healthcare: Medical consultations, pharmacy, health services, medical equipment
-                - Education: Courses, educational platforms, books, learning materials, tuition
-
-                **Lifestyle & Professional:**
-                - Travel: Flights, hotels, travel bookings, vacation expenses
-                - Work & Professional: Software tools, cloud services, business expenses, coworking
-                - Subscriptions: Recurring services not covered in other specific categories
-
-
-
-                1. **Be Specific**: Always choose the most specific subcategory that matches the transaction
-                2. **Merchant Matching**: Match known brands to their specific subcategories (e.g., Starbucks → Starbucks, not just Food & Dining)
-                3. **Amount Context**: Consider the amount when categorizing (large amounts may indicate different categories)
-                4. **Bank Context**: Some banks specialize in certain transaction types
-                
-                ## Key Rules:
-                - Return ONLY the subcategory name from the provided list
-                - Never return a category that isn't in the list
-                - If no good match exists, return 'Other'
-
-                                **Fallback:**
-                - Other: Only if transaction doesn't clearly fit any specific category above
-
-                ## Key Decision Rules:
-                1. **Merchant/Vendor Name**: Primary indicator - match known brands to their logical category
-                2. **Transaction Purpose**: If description includes purpose keywords, prioritize those
-                3. **Amount Context**: Large amounts might indicate investments/transfers, small regular amounts suggest subscriptions
-                4. **Specificity**: Choose the MOST SPECIFIC category that fits (e.g., "Food & Dining" over "Entertainment")
-
-                
-                Transaction: {transaction_text}
-
-                Subcategory:
-                """
+Extract and return ONLY this JSON:
+{{
+    "amount": "numeric amount only (e.g. 895.62) or null",
+    "vendor": "actual merchant/store name from transaction details",
+    "category": "specific category based on vendor context",
+    "color": "appropriate hex color for category",
+    "confidence": 0-100,
+    "is_subscription": true/false,
+    "subscription_type": "streaming/saas/food_delivery/telecom/etc or null",
+    "billing_cycle": "monthly/quarterly/yearly or null",
+    "service_logo": "appropriate emoji for service",
+    "is_trial": true/false
+}}"""
             
             data = {
                 "input": {
                     "prompt": prompt,
-                    "system_prompt": "You are an expert financial transaction categorizer. Analyze bank transaction details and categorize them into the most specific subcategory available. Always return exactly one subcategory name from the provided list."
+                    "system_prompt": "You are an expert transaction analyzer. Extract vendor details from bank email content, identify subscriptions, detect trials (amounts under ₹10 or keywords like 'trial', 'free', 'test'). Return only valid JSON.",
+                    "max_tokens": 400,
+                    "temperature": 0.2
                 }
             }
             
@@ -727,23 +429,243 @@ class AITransactionCategorizer:
             if response.status_code == 201:
                 prediction = response.json()
                 prediction_id = prediction['id']
-                category = self.poll_prediction(prediction_id)
+                result = self.poll_prediction(prediction_id)
                 
-                # Validate that the returned category is in our list
-                if category and category.strip() in self.categories:
-                    return category.strip()
-                else:
-                    # Fallback to basic pattern matching if AI returns invalid category
-                    return self.fallback_categorization(subject, body, amount, bank_name)
+                if result:
+                    try:
+                        json_match = re.search(r'\{.*\}', result.strip(), re.DOTALL)
+                        if json_match:
+                            json_str = json_match.group(0)
+                            analysis = json.loads(json_str)
+                        else:
+                            analysis = json.loads(result.strip())
+                        
+                        category = analysis.get('category', 'Other Transactions')
+                        vendor = analysis.get('vendor', 'Unknown Vendor')
+                        color = analysis.get('color', self.get_category_color(category))
+                        amount = analysis.get('amount')
+                        confidence = analysis.get('confidence', 50)
+                        is_subscription = analysis.get('is_subscription', False)
+                        subscription_type = analysis.get('subscription_type')
+                        billing_cycle = analysis.get('billing_cycle')
+                        service_logo = analysis.get('service_logo', '💳')
+                        is_trial = analysis.get('is_trial', False)
+                        
+                        # Validate amount
+                        if amount and isinstance(amount, str):
+                            amount = re.sub(r'[^\d.]', '', amount)
+                            try:
+                                amount = float(amount)
+                                if amount <= 0 or amount > 10000000:
+                                    amount = None
+                                # Check if amount indicates trial
+                                elif amount <= 10:
+                                    is_trial = True
+                            except:
+                                amount = None
+                        
+                        # Additional trial detection
+                        if not is_trial:
+                            trial_keywords = ['trial', 'free', 'test', 'demo', 'preview', 'beta']
+                            text_content = f"{subject} {body}".lower()
+                            is_trial = any(keyword in text_content for keyword in trial_keywords)
+                            if amount and amount <= 10:
+                                is_trial = True
+                        
+                        # Store color for category
+                        if category.lower() not in self.category_colors:
+                            self.category_colors[category.lower()] = color if color and color.startswith('#') else self.get_next_color()
+                        
+                        vendor_key = vendor.lower().strip()
+                        if vendor_key not in self.vendor_cache:
+                            self.vendor_cache[vendor_key] = {
+                                'display_name': vendor,
+                                'category': category,
+                                'color': self.category_colors[category.lower()],
+                                'is_subscription': is_subscription,
+                                'subscription_type': subscription_type,
+                                'service_logo': service_logo,
+                                'is_trial': is_trial
+                            }
+                        
+                        return {
+                            'amount': str(amount) if amount else None,
+                            'category': category,
+                            'merchant_name': vendor,
+                            'color': self.category_colors[category.lower()],
+                            'confidence': confidence,
+                            'is_subscription': is_subscription,
+                            'subscription_type': subscription_type,
+                            'billing_cycle': billing_cycle,
+                            'service_logo': service_logo,
+                            'is_trial': is_trial
+                        }
+                    except json.JSONDecodeError:
+                        pass
+            
+            return self.enhanced_fallback_analysis(subject, body, bank_name)
+                
+        except Exception:
+            return self.enhanced_fallback_analysis(subject, body, bank_name)
+    
+    def enhanced_fallback_analysis(self, subject: str, body: str, bank_name: str) -> Dict:
+        """Enhanced fallback analysis with vendor extraction and trial detection"""
+        body_clean = self.clean_html_content(body)
+        text = f"{subject} {body_clean}".lower()
+        
+        amount = self.extract_amount_regex(f"{subject} {body}")
+        amount_float = None
+        try:
+            if amount:
+                amount_float = float(amount)
+        except:
+            pass
+        
+        # Enhanced vendor extraction patterns
+        vendor_patterns = [
+            r'(?:at|@)\s+([A-Za-z][A-Za-z0-9\s&.-]{2,30})(?:\s|$|,|\.|;)',
+            r'(?:paid to|payment to|transfer to)\s+([A-Za-z][A-Za-z0-9\s&.-]{2,30})(?:\s|$|,|\.|;)',
+            r'(?:merchant|store|shop):\s*([A-Za-z][A-Za-z0-9\s&.-]{2,30})(?:\s|$|,|\.|;)',
+            r'(?:purchase from|bought from)\s+([A-Za-z][A-Za-z0-9\s&.-]{2,30})(?:\s|$|,|\.|;)',
+            r'([A-Z][A-Z0-9\s&.-]{3,25})\s+(?:store|shop|restaurant|cafe)',
+            r'(?:^|\s)([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\s+(?:payment|transaction)',
+        ]
+        
+        vendor = "Unknown Vendor"
+        for pattern in vendor_patterns:
+            matches = re.findall(pattern, body_clean, re.IGNORECASE | re.MULTILINE)
+            if matches:
+                vendor = matches[0].strip().title()
+                if len(vendor) > 3 and not vendor.lower() in ['the', 'and', 'for', 'with', 'from', 'account', 'bank', 'card']:
+                    break
+        
+        # Check subscription indicators
+        is_subscription = any(indicator in text for indicator in self.subscription_indicators)
+        subscription_type = None
+        billing_cycle = None
+        service_logo = '💳'
+        
+        # Trial detection
+        trial_keywords = ['trial', 'free', 'test', 'demo', 'preview', 'beta', 'promo']
+        is_trial = any(keyword in text for keyword in trial_keywords)
+        if amount_float and amount_float <= 10:
+            is_trial = True
+        
+        if is_subscription:
+            if any(word in text for word in ['stream', 'video', 'movie', 'tv']):
+                subscription_type = 'streaming'
+                service_logo = '🎬'
+            elif any(word in text for word in ['music', 'audio', 'song']):
+                subscription_type = 'music'
+                service_logo = '🎧'
+            elif any(word in text for word in ['cloud', 'storage', 'software', 'saas']):
+                subscription_type = 'saas'
+                service_logo = '☁️'
+            elif any(word in text for word in ['food', 'delivery', 'restaurant']):
+                subscription_type = 'food_delivery'
+                service_logo = '🍕'
+            elif any(word in text for word in ['mobile', 'internet', 'phone']):
+                subscription_type = 'telecom'
+                service_logo = '📱'
             else:
-                return self.fallback_categorization(subject, body, amount, bank_name)
-                
-        except Exception as e:
-            st.warning(f"AI categorization failed, using fallback: {e}")
-            return self.fallback_categorization(subject, body, amount, bank_name)
+                subscription_type = 'other'
+                service_logo = '🔄'
+            
+            if any(word in text for word in ['monthly', 'month']):
+                billing_cycle = 'monthly'
+            elif any(word in text for word in ['quarterly', 'quarter']):
+                billing_cycle = 'quarterly'
+            elif any(word in text for word in ['yearly', 'annual', 'year']):
+                billing_cycle = 'yearly'
+            else:
+                billing_cycle = 'monthly'
+        
+        # Enhanced category mapping
+        category_mapping = {
+            'food delivery': {'keywords': ['zomato', 'swiggy', 'uber eats', 'foodpanda', 'delivery', 'dominos', 'pizza', 'kfc', 'mcdonalds'], 'color': '#FF6B35'},
+            'restaurants': {'keywords': ['restaurant', 'dining', 'cafe', 'coffee', 'starbucks', 'ccd', 'bistro'], 'color': '#F7931E'},
+            'grocery stores': {'keywords': ['grocery', 'supermarket', 'big bazaar', 'dmart', 'reliance fresh', 'more', 'store'], 'color': '#4CAF50'},
+            'ride sharing': {'keywords': ['uber', 'ola', 'taxi', 'cab', 'ride'], 'color': '#000000'},
+            'fuel & petrol': {'keywords': ['petrol', 'diesel', 'fuel', 'gas', 'hp', 'bharat petroleum', 'iocl'], 'color': '#FF4444'},
+            'online shopping': {'keywords': ['amazon', 'flipkart', 'myntra', 'jabong', 'snapdeal', 'online', 'ecommerce'], 'color': '#FF5722'},
+            'streaming services': {'keywords': ['netflix', 'prime video', 'hotstar', 'disney', 'youtube', 'spotify'], 'color': '#E50914'},
+            'saas services': {'keywords': ['google cloud', 'aws', 'azure', 'office 365', 'adobe', 'dropbox'], 'color': '#4285F4'},
+            'pharmacy': {'keywords': ['pharmacy', 'medical', 'medicine', 'drug', 'apollo', 'netmeds'], 'color': '#4CAF50'},
+            'atm withdrawal': {'keywords': ['atm', 'withdrawal', 'cash', 'withdraw'], 'color': '#795548'},
+            'money transfer': {'keywords': ['transfer', 'upi', 'neft', 'rtgs', 'imps', 'paytm', 'phonepe', 'gpay'], 'color': '#2196F3'},
+            'electricity bill': {'keywords': ['electricity', 'power', 'current bill', 'bescom', 'kseb'], 'color': '#FFC107'},
+            'internet & telecom': {'keywords': ['internet', 'broadband', 'wifi', 'airtel', 'jio', 'bsnl', 'mobile bill'], 'color': '#9C27B0'},
+        }
+        
+        category = 'other transactions'
+        color = self.get_next_color()
+        max_matches = 0
+        
+        for cat, info in category_mapping.items():
+            matches = sum(1 for keyword in info['keywords'] if keyword in text)
+            if matches > max_matches:
+                max_matches = matches
+                category = cat
+                color = info['color']
+        
+        if max_matches == 0 and vendor != "Unknown Vendor":
+            vendor_lower = vendor.lower()
+            if any(word in vendor_lower for word in ['restaurant', 'cafe', 'kitchen', 'food']):
+                category = 'restaurants'
+                color = '#F7931E'
+            elif any(word in vendor_lower for word in ['store', 'mart', 'shop', 'retail']):
+                category = 'retail stores'
+                color = '#FF5722'
+            elif any(word in vendor_lower for word in ['tech', 'digital', 'software', 'app', 'cloud']):
+                category = 'saas services'
+                color = '#4285F4'
+        
+        # Store color for category
+        if category.lower() not in self.category_colors:
+            self.category_colors[category.lower()] = color
+        
+        return {
+            'amount': amount,
+            'category': category.title(),
+            'merchant_name': vendor,
+            'color': self.category_colors[category.lower()],
+            'confidence': max_matches * 15 if max_matches > 0 else 25,
+            'is_subscription': is_subscription,
+            'subscription_type': subscription_type,
+            'billing_cycle': billing_cycle,
+            'service_logo': service_logo,
+            'is_trial': is_trial
+        }
+    
+    def extract_amount_regex(self, text: str) -> Optional[str]:
+        """Extract amount with enhanced patterns"""
+        patterns = [
+            r'(?:Rs\.?\s*|₹\s*)(\d+(?:,\d+)*(?:\.\d{1,2})?)',
+            r'(?:INR\s*)(\d+(?:,\d+)*(?:\.\d{1,2})?)',
+            r'(?:\$|USD\s*)(\d+(?:,\d+)*(?:\.\d{1,2})?)',
+            r'(?:Amount\s*:?\s*Rs\.?\s*|Amount\s*:?\s*₹\s*)(\d+(?:,\d+)*(?:\.\d{1,2})?)',
+            r'(?:Amount\s*:?\s*)(\d+(?:,\d+)*(?:\.\d{1,2})?)',
+            r'(?:Debited|Credited|Withdrawn).*?(?:Rs\.?\s*|₹\s*)(\d+(?:,\d+)*(?:\.\d{1,2})?)',
+            r'(?:Debited|Credited|Withdrawn).*?(\d+(?:,\d+)*(?:\.\d{1,2})?)',
+            r'(?:^|\s)(\d{1,8}\.\d{2})(?:\s|$)',
+            r'(?:^|\s)(\d{2,8})(?:\s|$)'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                amount = match.replace(',', '').strip()
+                try:
+                    amount_float = float(amount)
+                    if 0.01 <= amount_float <= 10000000:
+                        return amount
+                except ValueError:
+                    continue
+        
+        return None
     
     def poll_prediction(self, prediction_id: str, max_attempts: int = 30) -> Optional[str]:
-        """Poll Replicate API for prediction completion"""
+        """Poll prediction with retry logic"""
         import time
         
         url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
@@ -771,271 +693,500 @@ class AITransactionCategorizer:
                 else:
                     return None
                     
-            except Exception as e:
+            except Exception:
                 return None
         
         return None
     
-    def fallback_categorization(self, subject: str, body: str, amount: str, bank_name: str) -> str:
-        """Fallback categorization using simple keyword matching"""
-        text = f"{subject} {body}".lower()
-        
-        # Simple keyword-based fallback
-        fallback_rules = {
-        # Banking & Finance
-        'ATM Withdrawal': ['atm', 'withdrawal', 'cash', 'withdraw'],
-        'Transfer': ['transfer', 'upi', 'neft', 'rtgs', 'imps', 'bank transfer', 'fund transfer'],
-        'Investment': ['mutual fund', 'sip', 'investment', 'equity', 'stocks', 'portfolio', 'trading'],
-        'Insurance': ['insurance', 'premium', 'policy', 'lic', 'health insurance', 'life insurance'],
-        'Banking & Finance': ['bank', 'banking', 'finance', 'loan', 'emi', 'credit'],
-        'Cryptocurrency': ['crypto', 'bitcoin', 'ethereum', 'digital currency', 'blockchain'],
-        'Loan Payment': ['loan', 'emi', 'installment', 'repayment', 'mortgage'],
-        'Credit Card': ['credit card', 'cc payment', 'card payment', 'outstanding'],
-        
-        # Shopping & Commerce
-        'Online Shopping': ['amazon', 'flipkart', 'myntra', 'shopping', 'online store', 'ecommerce', 'purchase'],
-        'Groceries': ['grocery', 'supermarket', 'vegetables', 'fruits', 'milk', 'bread', 'food items'],
-        'Fashion & Beauty': ['fashion', 'clothes', 'dress', 'shoes', 'beauty', 'cosmetics', 'makeup'],
-        'Electronics': ['mobile', 'laptop', 'computer', 'electronics', 'gadgets', 'phone', 'tablet'],
-        'Home & Garden': ['furniture', 'home decor', 'garden', 'appliances', 'kitchen', 'bedroom'],
-        'Books & Stationery': ['books', 'stationery', 'pen', 'notebook', 'magazine', 'newspaper'],
-        
-        # Fashion & Sportswear
-        'Nike': ['nike'],
-        'Adidas': ['adidas'],
-        'Puma': ['puma'],
-        'H&M': ['h&m', 'hm'],
-        'Zara': ['zara'],
-        'Uniqlo': ['uniqlo'],
-        
-        # Food & Dining
-        'Food & Dining': ['restaurant', 'food', 'dining', 'meal', 'lunch', 'dinner', 'cafe', 'bistro'],
-        'Zomato': ['zomato'],
-        'Swiggy': ['swiggy'],
-        'Uber Eats': ['uber eats', 'ubereats'],
-        'McDonalds': ['mcdonalds', 'mcd', 'mc donalds'],
-        'KFC': ['kfc', 'kentucky'],
-        'Pizza Hut': ['pizza hut', 'pizzahut'],
-        'Burger King': ['burger king', 'bk'],
-        'Subway': ['subway'],
-        'Starbucks': ['starbucks'],
-        'Dunkin': ['dunkin', 'dunkin donuts'],
-        
-        # Transportation
-        'Transportation': ['transport', 'travel', 'commute'],
-        'Uber': ['uber'],
-        'Ola': ['ola'],
-        'Rapido': ['rapido'],
-        'Metro': ['metro', 'subway', 'train'],
-        'IRCTC': ['irctc', 'railway', 'train booking'],
-        'Fuel & Petrol': ['petrol', 'fuel', 'gas station', 'diesel', 'cng'],
-        'Car Rental': ['car rental', 'rent a car', 'vehicle rental'],
-        'Parking': ['parking', 'park fee'],
-        
-        # Web Hosting & Cloud Services
-        'Hostinger': ['hostinger'],
-        'GoDaddy': ['godaddy'],
-        'AWS': ['aws', 'amazon web services'],
-        'Google Cloud': ['google cloud', 'gcp'],
-        'Microsoft Azure': ['azure', 'microsoft azure'],
-        'Domain Registration': ['domain', 'dns', 'hosting'],
-        
-        # Software & SaaS
-        'Microsoft Office': ['microsoft office', 'office 365', 'ms office'],
-        'Adobe Creative Cloud': ['adobe', 'photoshop', 'creative cloud'],
-        'Canva': ['canva'],
-        'Figma': ['figma'],
-        'Slack': ['slack'],
-        'Zoom': ['zoom'],
-        'GitHub': ['github'],
-        'Dropbox': ['dropbox'],
-        'Google Workspace': ['google workspace', 'g suite'],
-        'Notion': ['notion'],
-        
-        # Streaming Services
-        'Netflix': ['netflix'],
-        'Amazon Prime': ['amazon prime', 'prime video'],
-        'Disney+ Hotstar': ['disney', 'hotstar', 'disney+'],
-        'YouTube Premium': ['youtube premium', 'youtube'],
-        'Hulu': ['hulu'],
-        'HBO Max': ['hbo', 'hbo max'],
-        
-        # Music Streaming
-        'Spotify': ['spotify'],
-        'Apple Music': ['apple music'],
-        'YouTube Music': ['youtube music'],
-        'Amazon Music': ['amazon music'],
-        'Gaana': ['gaana'],
-        'JioSaavn': ['jiosaavn', 'saavn'],
-        
-        # Gaming
-        'Steam': ['steam'],
-        'Epic Games': ['epic games', 'epic'],
-        'PlayStation': ['playstation', 'ps4', 'ps5', 'sony'],
-        'Xbox': ['xbox', 'microsoft gaming'],
-        'PUBG': ['pubg', 'battlegrounds'],
-        'Free Fire': ['free fire', 'freefire'],
-        'Valorant': ['valorant'],
-        'Fortnite': ['fortnite'],
-        
-        # Social Media & Communication
-        'WhatsApp Business': ['whatsapp business'],
-        'Telegram Premium': ['telegram'],
-        'Discord Nitro': ['discord'],
-        'Twitter Blue': ['twitter', 'x premium'],
-        'LinkedIn Premium': ['linkedin'],
-        'Instagram': ['instagram'],
-        'Facebook': ['facebook', 'meta'],
-        'TikTok': ['tiktok'],
-        'Snapchat+': ['snapchat'],
-        'Pinterest Business': ['pinterest'],
-        'Mailchimp': ['mailchimp'],
-        
-        # Fitness & Health
-        'Gym Membership': ['gym', 'fitness', 'workout', 'membership'],
-        'Yoga Classes': ['yoga', 'meditation', 'wellness'],
-        'Personal Trainer': ['trainer', 'coach', 'fitness coach'],
-        'Health Insurance': ['health insurance', 'medical insurance'],
-        'Medical': ['doctor', 'hospital', 'clinic', 'medical', 'consultation'],
-        'Pharmacy': ['pharmacy', 'medicine', 'drugs', 'medical store'],
-        'Planet Fitness': ['planet fitness'],
-        'LA Fitness': ['la fitness'],
-        'CrossFit': ['crossfit'],
-        'Peloton': ['peloton'],
-        'MyFitnessPal': ['myfitnesspal'],
-        'Strava': ['strava'],
-        'Headspace': ['headspace'],
-        'Calm': ['calm'],
-        'CVS Health': ['cvs'],
-        'Walgreens': ['walgreens'],
-        'Teladoc': ['teladoc'],
-        'Mental Health': ['therapy', 'therapist', 'counseling', 'mental health'],
-        
-        # Education & Learning
-        'Coursera': ['coursera'],
-        'Udemy': ['udemy'],
-        'Skillshare': ['skillshare'],
-        'LinkedIn Learning': ['linkedin learning'],
-        'MasterClass': ['masterclass'],
-        'Khan Academy': ['khan academy'],
-        'Duolingo': ['duolingo'],
-        'Education': ['education', 'course', 'training', 'learning', 'tuition'],
-        
-        # Utilities & Bills
-        'Electricity': ['electricity', 'power bill', 'electric bill', 'ebill'],
-        'Water': ['water bill', 'water supply'],
-        'Gas': ['gas bill', 'lpg', 'cooking gas'],
-        'Internet': ['internet', 'wifi', 'broadband', 'data'],
-        'Mobile Bill': ['mobile', 'phone bill', 'cellular', 'recharge'],
-        'DTH/Cable': ['dth', 'cable', 'tv', 'dish'],
-        'Maintenance': ['maintenance', 'repair', 'service'],
-        'Verizon': ['verizon'],
-        'AT&T': ['att', 'at&t'],
-        'T-Mobile': ['t-mobile', 'tmobile'],
-        'Comcast Xfinity': ['comcast', 'xfinity'],
-        'Spectrum': ['spectrum'],
-        'YouTube TV': ['youtube tv'],
-        'Sling TV': ['sling tv'],
-        'Home Security': ['security', 'alarm'],
-        'ADT': ['adt'],
-        'Ring': ['ring'],
-        'Property Tax': ['property tax', 'tax'],
-        'HOA Fees': ['hoa', 'association'],
-        
-        # Travel & Accommodation
-        'Flight Booking': ['flight', 'airline', 'air ticket', 'aviation'],
-        'Hotel Booking': ['hotel', 'accommodation', 'stay', 'booking'],
-        'Airbnb': ['airbnb'],
-        'Travel Insurance': ['travel insurance'],
-        'Expedia': ['expedia'],
-        'Booking.com': ['booking.com', 'booking'],
-        'Hotels.com': ['hotels.com'],
-        'Hilton': ['hilton'],
-        'Marriott': ['marriott'],
-        'Hyatt': ['hyatt'],
-        'American Airlines': ['american airlines'],
-        'Delta': ['delta airlines'],
-        'United': ['united airlines'],
-        'Southwest': ['southwest'],
-        'Hertz': ['hertz'],
-        'Avis': ['avis'],
-        'Enterprise': ['enterprise'],
-        'Royal Caribbean': ['royal caribbean'],
-        'Carnival': ['carnival cruise'],
-        'Amtrak': ['amtrak'],
-        'Greyhound': ['greyhound'],
-        'Travel': ['travel', 'trip', 'vacation', 'holiday'],
-        
-        # Professional Services
-        'Legal Services': ['lawyer', 'attorney', 'legal', 'law firm'],
-        'Accounting': ['accountant', 'tax', 'bookkeeping', 'audit'],
-        'Consulting': ['consultant', 'consulting', 'advisory'],
-        'Marketing': ['marketing', 'advertising', 'promotion'],
-        'Design Services': ['design', 'graphic design', 'web design'],
-        'Upwork': ['upwork'],
-        'Fiverr': ['fiverr'],
-        'Freelancer': ['freelancer'],
-        'QuickBooks': ['quickbooks'],
-        'TurboTax': ['turbotax'],
-        'H&R Block': ['h&r block'],
-        'LegalZoom': ['legalzoom'],
-        
-        # Cryptocurrency & Fintech
-        'Coinbase': ['coinbase'],
-        'Binance': ['binance'],
-        'PayPal': ['paypal'],
-        'Stripe': ['stripe'],
-        'Razorpay': ['razorpay'],
-        'Paytm': ['paytm'],
-        'PhonePe': ['phonepe'],
-        'Google Pay': ['google pay', 'gpay'],
-        'Robinhood': ['robinhood'],
-        'Webull': ['webull'],
-        'Charles Schwab': ['schwab'],
-        'Fidelity': ['fidelity'],
-        'Chime': ['chime'],
-        'Venmo': ['venmo'],
-        'Zelle': ['zelle'],
-        'Cash App': ['cash app', 'cashapp'],
-        'Apple Pay': ['apple pay'],
-        'Western Union': ['western union'],
-        
-        # General Fallback Categories
-        'Entertainment': ['entertainment', 'movie', 'cinema', 'show', 'concert', 'event'],
-        'Healthcare': ['health', 'medical', 'doctor', 'hospital', 'clinic'],
-        'Subscriptions': ['subscription', 'monthly', 'recurring', 'premium'],
-        'Charity & Donations': ['donation', 'charity', 'non-profit', 'ngo'],
-        'Pet Care': ['pet', 'veterinary', 'animal', 'dog', 'cat'],
-        'Work & Professional': ['office', 'work', 'professional', 'business'],
-        'Other': ['miscellaneous', 'other', 'unknown']
-        }
-        
-        for category, keywords in fallback_rules.items():
-            if any(keyword in text for keyword in keywords):
-                return category
-        
-        return 'Other'
-    
     def get_category_color(self, category: str) -> str:
         """Get color for a category"""
-        return self.categories.get(category, '#D3D3D3')
+        category_lower = category.lower()
+        if category_lower in self.category_colors:
+            return self.category_colors[category_lower]
+        else:
+            color = self.get_next_color()
+            self.category_colors[category_lower] = color
+            return color
+
+class SubscriptionTracker:
+    """Subscription tracking with trial detection and optimized unique ID generation"""
     
-    def get_all_categories(self) -> List[str]:
-        """Get list of all available categories"""
-        return list(self.categories.keys())
+    def __init__(self, config_manager: ConfigManager):
+        self.config_manager = config_manager
+    
+    def generate_unique_id(self, prefix: str, merchant_name: str, amount: float, extra: str = "") -> str:
+        """Generate a truly unique ID using hash of multiple components"""
+        timestamp = str(int(time.time() * 1000))
+        merchant_clean = re.sub(r'[^a-zA-Z0-9]', '', merchant_name.lower())
+        amount_str = str(int(amount * 100)) if amount else "0"
+        
+        # Create hash from components
+        hash_input = f"{merchant_clean}_{amount_str}_{timestamp}_{extra}".encode()
+        hash_id = hashlib.md5(hash_input).hexdigest()[:8]
+        
+        return f"{prefix}_{merchant_clean}_{hash_id}"
+    
+    def detect_subscription_type_and_trial(self, merchant_name: str, amount: float, transaction_data: Dict) -> Dict:
+        """Detect if subscription is trial and determine type"""
+        is_trial = False
+        trial_reason = None
+        
+        # Check amount-based trial detection
+        if amount <= 10:
+            is_trial = True
+            trial_reason = f"Low amount (₹{amount:.2f})"
+        
+        # Check text-based trial detection
+        text_content = f"{merchant_name} {transaction_data.get('original_description', '')}".lower()
+        trial_keywords = ['trial', 'free', 'test', 'demo', 'preview', 'beta', 'promo', 'starter']
+        
+        for keyword in trial_keywords:
+            if keyword in text_content:
+                is_trial = True
+                trial_reason = f"Contains '{keyword}'"
+                break
+        
+        # Special service detection
+        service_lower = merchant_name.lower()
+        subscription_type = transaction_data.get('subscription_type', 'other')
+        
+        if 'google cloud' in service_lower or 'gcp' in service_lower:
+            subscription_type = 'cloud_platform'
+            if amount <= 10:
+                is_trial = True
+                trial_reason = "Google Cloud trial/credits"
+        
+        return {
+            'is_trial': is_trial,
+            'trial_reason': trial_reason,
+            'subscription_type': subscription_type
+        }
+    
+    def detect_subscriptions_from_transactions(self, df: pd.DataFrame) -> List[Dict]:
+        """Detect subscriptions from existing transaction analysis with trial detection"""
+        if df.empty:
+            return []
+        
+        detected_subscriptions = []
+        
+        subscription_transactions = df[df.get('is_subscription', False) == True].copy()
+        
+        if subscription_transactions.empty:
+            return self._detect_subscriptions_by_pattern(df)
+        
+        subscription_transactions['merchant_key'] = subscription_transactions['merchant_name'].str.lower().str.strip()
+        
+        merchant_groups = subscription_transactions.groupby(['merchant_key', 'amount_numeric']).agg({
+            'date_parsed': ['count', 'min', 'max'],
+            'merchant_name': 'first',
+            'category': 'first',
+            'bank': 'first',
+            'subscription_type': 'first',
+            'billing_cycle': 'first',
+            'service_logo': 'first',
+            'color': 'first',
+            'confidence': 'mean',
+            'is_trial': 'first',
+            'subject': 'first'
+        })
+        
+        merchant_groups.columns = ['transaction_count', 'first_date', 'last_date', 'merchant_name', 
+                                 'category', 'bank', 'subscription_type', 'billing_cycle', 
+                                 'service_logo', 'color', 'confidence', 'is_trial', 'subject']
+        merchant_groups = merchant_groups.reset_index()
+        
+        potential_subs = merchant_groups[merchant_groups['transaction_count'] >= 1]
+        
+        for idx, row in potential_subs.iterrows():
+            ai_billing_cycle = row['billing_cycle']
+            amount = float(row['amount_numeric'])
+            
+            if row['transaction_count'] > 1:
+                date_diff = (row['last_date'] - row['first_date']).days
+                avg_cycle = date_diff / (row['transaction_count'] - 1) if row['transaction_count'] > 1 else 0
+                
+                if 25 <= avg_cycle <= 35:
+                    pattern_cycle = 'monthly'
+                elif 85 <= avg_cycle <= 95:
+                    pattern_cycle = 'quarterly'
+                elif 360 <= avg_cycle <= 370:
+                    pattern_cycle = 'yearly'
+                else:
+                    pattern_cycle = ai_billing_cycle or 'monthly'
+                
+                final_cycle = ai_billing_cycle if ai_billing_cycle else pattern_cycle
+            else:
+                final_cycle = ai_billing_cycle or 'monthly'
+            
+            # Enhanced trial and type detection
+            trial_info = self.detect_subscription_type_and_trial(
+                row['merchant_name'], 
+                amount, 
+                {'original_description': row['subject'], 'subscription_type': row['subscription_type']}
+            )
+            
+            # Generate truly unique ID
+            unique_id = self.generate_unique_id(
+                "detected", 
+                row['merchant_name'], 
+                amount, 
+                f"{idx}_{row['bank']}"
+            )
+            
+            detected_subscriptions.append({
+                'id': unique_id,
+                'service_name': row['merchant_name'],
+                'service_logo': row['service_logo'] or '☁️' if 'cloud' in row['merchant_name'].lower() else '💳',
+                'amount': amount,
+                'billing_cycle': final_cycle.title(),
+                'start_date': row['first_date'].date(),
+                'last_payment': row['last_date'].date(),
+                'category': row['category'],
+                'brand_color': row['color'] or '#6C757D',
+                'bank': row['bank'],
+                'transaction_count': row['transaction_count'],
+                'status': 'Trial' if trial_info['is_trial'] else 'Active',
+                'auto_detected': True,
+                'original_description': f"{row['merchant_name']} - {row['subscription_type'] or 'subscription'}",
+                'confidence_score': row['confidence'],
+                'subscription_type': trial_info['subscription_type'],
+                'is_trial': trial_info['is_trial'],
+                'trial_reason': trial_info['trial_reason']
+            })
+        
+        return detected_subscriptions
+    
+    def _detect_subscriptions_by_pattern(self, df: pd.DataFrame) -> List[Dict]:
+        """Fallback pattern-based subscription detection with trial detection"""
+        detected_subscriptions = []
+        
+        df['merchant_key'] = df['subject'].str.lower().str.strip()
+        
+        merchant_groups = df.groupby(['merchant_key', 'amount_numeric']).agg({
+            'date_parsed': ['count', 'min', 'max'],
+            'subject': 'first',
+            'category': 'first',
+            'bank': 'first',
+            'merchant_name': 'first'
+        })
+        
+        merchant_groups.columns = ['transaction_count', 'first_date', 'last_date', 'subject', 'category', 'bank', 'merchant_name']
+        merchant_groups = merchant_groups.reset_index()
+        
+        potential_subs = merchant_groups[merchant_groups['transaction_count'] >= 2]
+        
+        for idx, row in potential_subs.iterrows():
+            date_diff = (row['last_date'] - row['first_date']).days
+            amount = float(row['amount_numeric'])
+            
+            if date_diff > 0:
+                avg_cycle = date_diff / (row['transaction_count'] - 1)
+                
+                if 25 <= avg_cycle <= 35:
+                    billing_cycle = 'Monthly'
+                elif 85 <= avg_cycle <= 95:
+                    billing_cycle = 'Quarterly'
+                elif 360 <= avg_cycle <= 370:
+                    billing_cycle = 'Yearly'
+                else:
+                    billing_cycle = 'Irregular'
+                
+                if billing_cycle in ['Monthly', 'Quarterly', 'Yearly']:
+                    service_info = self._basic_service_detection(row['subject'], amount)
+                    
+                    # Trial detection for pattern-based subscriptions
+                    trial_info = self.detect_subscription_type_and_trial(
+                        service_info['name'], 
+                        amount, 
+                        {'original_description': row['subject']}
+                    )
+                    
+                    # Generate unique ID
+                    unique_id = self.generate_unique_id(
+                        "pattern", 
+                        service_info['name'], 
+                        amount, 
+                        f"{idx}_{billing_cycle}"
+                    )
+                    
+                    detected_subscriptions.append({
+                        'id': unique_id,
+                        'service_name': service_info['name'],
+                        'service_logo': service_info['logo'],
+                        'amount': amount,
+                        'billing_cycle': billing_cycle,
+                        'start_date': row['first_date'].date(),
+                        'last_payment': row['last_date'].date(),
+                        'category': service_info['category'],
+                        'brand_color': service_info['color'],
+                        'bank': row['bank'],
+                        'transaction_count': row['transaction_count'],
+                        'status': 'Trial' if trial_info['is_trial'] else 'Active',
+                        'auto_detected': True,
+                        'original_description': row['subject'],
+                        'confidence_score': service_info['confidence'],
+                        'subscription_type': 'pattern_detected',
+                        'is_trial': trial_info['is_trial'],
+                        'trial_reason': trial_info['trial_reason']
+                    })
+        
+        return detected_subscriptions
+    
+    def _basic_service_detection(self, description: str, amount: float = None) -> Dict:
+        """Basic service detection for fallback with enhanced Google Cloud detection"""
+        desc_lower = description.lower().strip()
+        
+        service_patterns = {
+            'netflix': {'name': 'Netflix', 'category': 'Video Streaming', 'logo': '🎬', 'color': '#E50914', 'confidence': 85},
+            'spotify': {'name': 'Spotify', 'category': 'Music Streaming', 'logo': '🎧', 'color': '#1DB954', 'confidence': 85},
+            'youtube': {'name': 'YouTube Premium', 'category': 'Video Streaming', 'logo': '▶️', 'color': '#FF0000', 'confidence': 80},
+            'amazon': {'name': 'Amazon Prime', 'category': 'Video Streaming', 'logo': '📦', 'color': '#FF9900', 'confidence': 85},
+            'microsoft': {'name': 'Microsoft 365', 'category': 'Productivity SaaS', 'logo': '💼', 'color': '#0078D4', 'confidence': 80},
+            'adobe': {'name': 'Adobe Creative', 'category': 'Design SaaS', 'logo': '🎨', 'color': '#FF0000', 'confidence': 80},
+            'google cloud': {'name': 'Google Cloud', 'category': 'Cloud Platform', 'logo': '☁️', 'color': '#4285F4', 'confidence': 90},
+            'google': {'name': 'Google Workspace', 'category': 'Productivity SaaS', 'logo': '☁️', 'color': '#4285F4', 'confidence': 75},
+        }
+        
+        for pattern, info in service_patterns.items():
+            if pattern in desc_lower:
+                return info
+        
+        # Special handling for cloud services
+        if any(keyword in desc_lower for keyword in ['cloud', 'aws', 'azure', 'gcp']):
+            words = description.split()
+            service_name = ' '.join(words[:2]).title() if len(words) >= 2 else words[0].title()
+            return {
+                'name': service_name,
+                'category': "Cloud Services",
+                'logo': '☁️',
+                'color': "#4285F4",
+                'confidence': 75
+            }
+        
+        words = description.split()
+        service_name = words[0].title() if words else "Unknown Service"
+        
+        return {
+            'name': service_name,
+            'category': "Other Services",
+            'logo': '💳',
+            'color': "#6C757D",
+            'confidence': 35
+        }
+    
+    def calculate_subscription_metrics(self, subscriptions: List[Dict]) -> Dict:
+        """Calculate comprehensive subscription metrics including trial handling"""
+        if not subscriptions:
+            return {
+                'total_monthly': 0,
+                'total_yearly': 0,
+                'remaining_year': 0,
+                'active_count': 0,
+                'inactive_count': 0,
+                'trial_count': 0,
+                'monthly_breakdown': {},
+                'category_breakdown': {}
+            }
+        
+        active_subs = [sub for sub in subscriptions if sub.get('status', 'Active') in ['Active', 'Trial']]
+        trial_subs = [sub for sub in subscriptions if sub.get('status') == 'Trial']
+        
+        total_monthly = 0
+        monthly_breakdown = {}
+        category_breakdown = {}
+        
+        current_date = datetime.now().date()
+        year_end = date(current_date.year, 12, 31)
+        months_remaining = (year_end.year - current_date.year) * 12 + year_end.month - current_date.month + 1
+        
+        for sub in active_subs:
+            if sub['billing_cycle'] == 'Monthly':
+                monthly_amount = sub['amount']
+            elif sub['billing_cycle'] == 'Quarterly':
+                monthly_amount = sub['amount'] / 3
+            elif sub['billing_cycle'] == 'Yearly':
+                monthly_amount = sub['amount'] / 12
+            else:
+                monthly_amount = sub['amount']
+            
+            # For trials, we might want to project the full cost
+            if sub.get('status') == 'Trial' and sub.get('is_trial'):
+                # Keep trial cost as is, but note it separately
+                pass
+            
+            total_monthly += monthly_amount
+            monthly_breakdown[sub['service_name']] = monthly_amount
+            
+            category = sub.get('category', 'Other')
+            if category in category_breakdown:
+                category_breakdown[category] += monthly_amount
+            else:
+                category_breakdown[category] = monthly_amount
+        
+        total_yearly = total_monthly * 12
+        remaining_year = total_monthly * months_remaining
+        
+        return {
+            'total_monthly': total_monthly,
+            'total_yearly': total_yearly,
+            'remaining_year': remaining_year,
+            'active_count': len([s for s in subscriptions if s.get('status') == 'Active']),
+            'inactive_count': len([s for s in subscriptions if s.get('status') == 'Inactive']),
+            'trial_count': len(trial_subs),
+            'monthly_breakdown': monthly_breakdown,
+            'category_breakdown': category_breakdown,
+            'months_remaining': months_remaining
+        }
+    
+    def get_next_payment_date(self, subscription: Dict) -> date:
+        """Calculate next payment date"""
+        last_payment = subscription.get('last_payment', subscription['start_date'])
+        if isinstance(last_payment, str):
+            last_payment = datetime.strptime(last_payment, '%Y-%m-%d').date()
+        
+        billing_cycle = subscription['billing_cycle']
+        
+        if billing_cycle == 'Monthly':
+            next_date = last_payment + timedelta(days=30)
+        elif billing_cycle == 'Quarterly':
+            next_date = last_payment + timedelta(days=90)
+        elif billing_cycle == 'Yearly':
+            next_date = last_payment + timedelta(days=365)
+        else:
+            next_date = last_payment + timedelta(days=30)
+        
+        return next_date
+    
+    def add_subscription(self, subscription_data: Dict) -> bool:
+        """Add a new subscription with trial detection"""
+        try:
+            # Generate unique ID
+            subscription_data['id'] = self.generate_unique_id(
+                "manual",
+                subscription_data['service_name'],
+                subscription_data['amount']
+            )
+            subscription_data['auto_detected'] = False
+            
+            # Trial detection for manual subscriptions
+            is_trial = subscription_data['amount'] <= 10
+            if is_trial:
+                subscription_data['status'] = 'Trial'
+                subscription_data['is_trial'] = True
+                subscription_data['trial_reason'] = f"Low amount (₹{subscription_data['amount']:.2f})"
+            else:
+                subscription_data['is_trial'] = False
+            
+            if 'service_logo' not in subscription_data or 'brand_color' not in subscription_data:
+                service_info = self._enhance_manual_subscription(subscription_data['service_name'])
+                subscription_data['service_logo'] = service_info['logo']
+                subscription_data['brand_color'] = service_info['color']
+                if 'category' not in subscription_data or not subscription_data['category']:
+                    subscription_data['category'] = service_info['category']
+                
+            st.session_state.subscriptions.append(subscription_data)
+            return True
+        except Exception as e:
+            st.error(f"Error adding subscription: {e}")
+            return False
+    
+    def _enhance_manual_subscription(self, service_name: str) -> Dict:
+        """Enhanced service detection for manually added subscriptions"""
+        service_lower = service_name.lower().strip()
+        
+        enhanced_patterns = {
+            'netflix': {'category': 'Video Streaming', 'logo': '🎬', 'color': '#E50914'},
+            'amazon prime': {'category': 'Video Streaming', 'logo': '📺', 'color': '#FF9900'},
+            'disney': {'category': 'Video Streaming', 'logo': '🏰', 'color': '#113CCF'},
+            'youtube': {'category': 'Video Streaming', 'logo': '▶️', 'color': '#FF0000'},
+            'spotify': {'category': 'Music Streaming', 'logo': '🎧', 'color': '#1DB954'},
+            'apple music': {'category': 'Music Streaming', 'logo': '🎵', 'color': '#FA243C'},
+            'hotstar': {'category': 'Video Streaming', 'logo': '🌟', 'color': '#0F1419'},
+            'microsoft': {'category': 'Productivity SaaS', 'logo': '💼', 'color': '#0078D4'},
+            'adobe': {'category': 'Design SaaS', 'logo': '🎨', 'color': '#FF0000'},
+            'google cloud': {'category': 'Cloud Platform', 'logo': '☁️', 'color': '#4285F4'},
+            'google': {'category': 'Productivity SaaS', 'logo': '☁️', 'color': '#4285F4'},
+            'dropbox': {'category': 'Cloud Storage', 'logo': '📦', 'color': '#0061FF'},
+            'zoom': {'category': 'Video Conferencing', 'logo': '📹', 'color': '#2D8CFF'},
+            'slack': {'category': 'Team Communication', 'logo': '💬', 'color': '#4A154B'},
+            'notion': {'category': 'Productivity SaaS', 'logo': '📝', 'color': '#000000'},
+            'zomato': {'category': 'Food Delivery', 'logo': '🍕', 'color': '#E23744'},
+            'swiggy': {'category': 'Food Delivery', 'logo': '🛵', 'color': '#FC8019'},
+            'uber eats': {'category': 'Food Delivery', 'logo': '🍔', 'color': '#000000'},
+            'airtel': {'category': 'Telecom', 'logo': '📶', 'color': '#E50000'},
+            'jio': {'category': 'Telecom', 'logo': '📱', 'color': '#0066CC'},
+            'vi': {'category': 'Telecom', 'logo': '📞', 'color': '#FF6B00'},
+        }
+        
+        for pattern, info in enhanced_patterns.items():
+            if pattern in service_lower:
+                return info
+        
+        # Infer category from keywords
+        if any(word in service_lower for word in ['stream', 'video', 'movie', 'tv', 'watch']):
+            return {'category': 'Video Streaming', 'logo': '🎬', 'color': '#E50914'}
+        elif any(word in service_lower for word in ['music', 'audio', 'song', 'podcast']):
+            return {'category': 'Music Streaming', 'logo': '🎧', 'color': '#1DB954'}
+        elif any(word in service_lower for word in ['cloud', 'storage', 'backup', 'sync']):
+            return {'category': 'Cloud Services', 'logo': '☁️', 'color': '#4285F4'}
+        elif any(word in service_lower for word in ['food', 'restaurant', 'delivery', 'eat']):
+            return {'category': 'Food Services', 'logo': '🍕', 'color': '#FC8019'}
+        elif any(word in service_lower for word in ['mobile', 'internet', 'phone', 'data']):
+            return {'category': 'Telecom Services', 'logo': '📱', 'color': '#E50000'}
+        elif any(word in service_lower for word in ['software', 'saas', 'tool', 'app']):
+            return {'category': 'Software SaaS', 'logo': '⚙️', 'color': '#6C5CE7'}
+        else:
+            return {'category': 'Other Services', 'logo': '💳', 'color': '#6C757D'}
+    
+    def update_subscription(self, subscription_id: str, updated_data: Dict) -> bool:
+        """Update an existing subscription with trial detection"""
+        try:
+            for i, sub in enumerate(st.session_state.subscriptions):
+                if sub['id'] == subscription_id:
+                    # Check if amount changed and affects trial status
+                    if 'amount' in updated_data:
+                        new_amount = updated_data['amount']
+                        if new_amount <= 10 and not sub.get('is_trial', False):
+                            updated_data['status'] = 'Trial'
+                            updated_data['is_trial'] = True
+                            updated_data['trial_reason'] = f"Low amount (₹{new_amount:.2f})"
+                        elif new_amount > 10 and sub.get('is_trial', False):
+                            updated_data['status'] = 'Active'
+                            updated_data['is_trial'] = False
+                            updated_data['trial_reason'] = None
+                    
+                    if 'service_name' in updated_data and updated_data['service_name'] != sub.get('service_name'):
+                        service_info = self._enhance_manual_subscription(updated_data['service_name'])
+                        updated_data['service_logo'] = service_info['logo']
+                        updated_data['brand_color'] = service_info['color']
+                        updated_data['category'] = service_info['category']
+                    
+                    st.session_state.subscriptions[i].update(updated_data)
+                    return True
+            return False
+        except Exception as e:
+            st.error(f"Error updating subscription: {e}")
+            return False
+    
+    def delete_subscription(self, subscription_id: str) -> bool:
+        """Delete a subscription"""
+        try:
+            st.session_state.subscriptions = [
+                sub for sub in st.session_state.subscriptions 
+                if sub['id'] != subscription_id
+            ]
+            return True
+        except Exception as e:
+            st.error(f"Error deleting subscription: {e}")
+            return False
 
 class BankEmailExtractor:
+    """Enhanced email extraction with multi-threaded processing"""
     def __init__(self, config_manager: ConfigManager):
-        """
-        Initialize the email extractor with configuration manager
-        
-        Args:
-            config_manager: ConfigManager instance with loaded credentials
-        """
         self.config_manager = config_manager
         self.bank_senders = {
-            'SBI': ['donotreply.sbiatm@alerts.sbi.co.in'],
-            'HDFC Bank': ['alerts@hdfcbank.net'],
+            'SBI': ['donotreply.sbiatm@alerts.sbi.co.in', 'alerts@sbi.co.in', 'sbicard.alerts@sbi.co.in'],
+            'HDFC Bank': ['alerts@hdfcbank.net', 'hdfcbank@hdfcbank.net'],
             'ICICI Bank': ['alert@icicibank.com', 'credit_cards@icicibank.com'],
             'Axis Bank': ['alerts@axisbank.com'],
             'Kotak Mahindra Bank': ['creditcardalerts@kotak.com'],
@@ -1061,8 +1212,8 @@ class BankEmailExtractor:
             'Charles Schwab': ['no-reply@schwab.com']
         }
         self.mail = None
+        self.lock = threading.Lock()
         
-        # Initialize categorizer if token is available
         replicate_token = config_manager.get_config_value('REPLICATE_API_TOKEN')
         if replicate_token:
             self.categorizer = AITransactionCategorizer(replicate_token)
@@ -1070,14 +1221,10 @@ class BankEmailExtractor:
             self.categorizer = None
         
     def authenticate_gmail(self, email_address: str, password: str):
-        """Authenticate with Gmail using IMAP with email and password"""
+        """Authenticate with Gmail using IMAP"""
         try:
-            # Connect to Gmail IMAP server
             self.mail = imaplib.IMAP4_SSL('imap.gmail.com')
-            
-            # Login with email and password
             self.mail.login(email_address, password)
-            
             return True, email_address
             
         except imaplib.IMAP4.error as e:
@@ -1094,99 +1241,192 @@ class BankEmailExtractor:
             return False, None
     
     def search_bank_emails(self, max_results: int = 50) -> List[str]:
-        """Search for emails from supported banks using IMAP"""
+        """Search for bank emails"""
         try:
-            # Select INBOX
             self.mail.select('INBOX')
             
             all_message_ids = []
             
-            # Search for each bank separately to avoid long IMAP queries
-            for bank, senders in self.bank_senders.items():
-                for sender in senders:
-                    try:
-                        # Search for emails from this sender
-                        result, message_ids = self.mail.search(None, f'FROM "{sender}"')
-                        
-                        if result == 'OK' and message_ids[0]:
-                            # Add to our collection
-                            all_message_ids.extend(message_ids[0].split())
-                            
-                            # Early exit if we've already reached max results
-                            if len(all_message_ids) >= max_results:
-                                break
-                    
-                    except Exception as e:
-                        st.warning(f"Warning: Error searching for {sender}: {str(e)}")
-                        continue
-                
-                # Early exit if we've already reached max results
+            search_terms = [
+                *[f'FROM "{sender}"' for bank_senders in self.bank_senders.values() for sender in bank_senders],
+                'SUBJECT "transaction"',
+                'SUBJECT "debit"',
+                'SUBJECT "credit"',
+                'SUBJECT "withdrawal"',
+                'SUBJECT "payment"',
+                'SUBJECT "alert"',
+                'SUBJECT "statement"',
+                'SUBJECT "google cloud"',
+                'BODY "google cloud"'
+            ]
+            
+            for search_term in search_terms:
                 if len(all_message_ids) >= max_results:
                     break
+                    
+                try:
+                    result, message_ids = self.mail.search(None, search_term)
+                    
+                    if result == 'OK' and message_ids[0]:
+                        new_ids = message_ids[0].split()
+                        all_message_ids.extend(new_ids)
+                        
+                except Exception as e:
+                    continue
             
-            # Get unique message IDs (most recent first)
             unique_ids = list(set(all_message_ids))
-            unique_ids.sort(reverse=True)  # Most recent first
+            unique_ids.sort(reverse=True)
             
-            # Limit results
             return unique_ids[:max_results]
             
         except Exception as e:
             st.error(f"Error searching emails: {e}")
             return []
     
-    def get_email_content(self, message_id: str) -> Dict:
-        """Get email content by message ID using IMAP"""
+    def fetch_and_analyze_email(self, message_id: str) -> Optional[Dict]:
+        """Thread-safe method to fetch and analyze a single email"""
         try:
-            # Fetch the email
-            result, msg_data = self.mail.fetch(message_id, '(RFC822)')
+            with self.lock:
+                result, msg_data = self.mail.fetch(message_id, '(RFC822)')
             
-            if result == 'OK':
-                # Parse the email
-                raw_email = msg_data[0][1]
-                email_message = email.message_from_bytes(raw_email)
-                
-                # Extract headers
-                subject = email_message.get('Subject', '')
-                sender = email_message.get('From', '')
-                date_header = email_message.get('Date', '')
-                
-                # Extract body
-                body = self.extract_email_body(email_message)
-                
-                # Determine which bank this email is from
-                bank_name = self.identify_bank(sender)
-                
-                return {
-                    'message_id': message_id.decode(),
-                    'subject': subject,
-                    'sender': sender,
-                    'bank': bank_name,
-                    'date': date_header,
-                    'body': body,
-                    'full_text': f"Bank: {bank_name}\nSubject: {subject}\n\nBody: {body}"
-                }
-            else:
+            if result != 'OK' or not msg_data:
                 return None
+                
+            raw_email = msg_data[0][1]
+            email_message = email.message_from_bytes(raw_email)
             
-        except Exception as e:
-            st.error(f"Error fetching email {message_id}: {e}")
+            subject = email_message.get('Subject', '')
+            sender = email_message.get('From', '')
+            date_header = email_message.get('Date', '')
+            
+            body = self.extract_email_body(email_message)
+            bank_name = self.identify_bank(sender)
+            
+            if self.categorizer:
+                analysis = self.categorizer.analyze_transaction_complete(
+                    subject, 
+                    body, 
+                    bank_name
+                )
+                
+                amount = analysis['amount']
+                category = analysis['category']
+                merchant_name = analysis['merchant_name']
+                category_color = analysis['color']
+                confidence = analysis['confidence']
+                is_subscription = analysis.get('is_subscription', False)
+                subscription_type = analysis.get('subscription_type')
+                billing_cycle = analysis.get('billing_cycle')
+                service_logo = analysis.get('service_logo', '💳')
+                is_trial = analysis.get('is_trial', False)
+            else:
+                amount = None
+                category = 'Other'
+                merchant_name = subject[:50]
+                category_color = '#6C757D'
+                confidence = 0
+                is_subscription = False
+                subscription_type = None
+                billing_cycle = None
+                service_logo = '💳'
+                is_trial = False
+            
+            return {
+                'message_id': message_id.decode() if isinstance(message_id, bytes) else str(message_id),
+                'date': date_header,
+                'bank': bank_name,
+                'subject': subject,
+                'merchant_name': merchant_name,
+                'sender': sender,
+                'amount': amount,
+                'category': category,
+                'category_color': category_color,
+                'color': category_color,
+                'confidence': confidence,
+                'is_subscription': is_subscription,
+                'subscription_type': subscription_type,
+                'billing_cycle': billing_cycle,
+                'service_logo': service_logo,
+                'is_trial': is_trial,
+                'email_body_preview': body[:200] + "..." if len(body) > 200 else body
+            }
+            
+        except Exception:
             return None
     
+    def process_emails(self, max_emails: int = 50, progress_callback=None) -> List[Dict]:
+        """Process emails with multi-threaded processing"""
+        results = []
+        
+        try:
+            message_ids = self.search_bank_emails(max_emails)
+            total_emails = len(message_ids)
+            
+            if total_emails == 0:
+                return results
+            
+            with ThreadPoolExecutor(max_workers=10, thread_name_prefix="EmailProcessor") as executor:
+                future_to_message_id = {
+                    executor.submit(self.fetch_and_analyze_email, message_id): message_id 
+                    for message_id in message_ids
+                }
+                
+                completed_count = 0
+                successful_count = 0
+                
+                for future in as_completed(future_to_message_id):
+                    completed_count += 1
+                    
+                    try:
+                        email_data = future.result(timeout=30)
+                        if email_data:
+                            results.append(email_data)
+                            successful_count += 1
+                    except Exception:
+                        pass
+                    
+                    if progress_callback:
+                        progress_callback(completed_count, total_emails)
+                
+        except Exception:
+            pass
+        finally:
+            if self.mail:
+                try:
+                    self.mail.close()
+                    self.mail.logout()
+                except:
+                    pass
+        
+        return results
+    
     def identify_bank(self, sender: str) -> str:
-        """Identify which bank the email is from based on sender address"""
-        for bank, senders in self.bank_senders.items():
-            for s in senders:
-                if s.lower() in sender.lower():
+        """Enhanced bank identification"""
+        sender_lower = sender.lower()
+        
+        for bank, identifiers in self.bank_senders.items():
+            for identifier in identifiers:
+                if identifier.lower() in sender_lower:
                     return bank
+        
+        if any(domain in sender_lower for domain in ['sbi', 'statebank']):
+            return 'SBI'
+        elif any(domain in sender_lower for domain in ['hdfc']):
+            return 'HDFC Bank'
+        elif any(domain in sender_lower for domain in ['icici']):
+            return 'ICICI Bank'
+        elif any(domain in sender_lower for domain in ['axis']):
+            return 'Axis Bank'
+        elif any(domain in sender_lower for domain in ['kotak']):
+            return 'Kotak Bank'
+            
         return "Unknown Bank"
     
     def extract_email_body(self, email_message) -> str:
-        """Extract body text from email message"""
+        """Enhanced email body extraction"""
         body = ""
         
         if email_message.is_multipart():
-            # Handle multipart messages
             for part in email_message.walk():
                 content_type = part.get_content_type()
                 content_disposition = str(part.get("Content-Disposition"))
@@ -1204,14 +1444,17 @@ class BankEmailExtractor:
                 elif content_type == "text/html" and "attachment" not in content_disposition and not body:
                     try:
                         html_body = part.get_payload(decode=True).decode('utf-8')
-                        # Simple HTML to text conversion
-                        body = re.sub(r'<[^>]+>', ' ', html_body)
-                        body = re.sub(r'\s+', ' ', body).strip()
+                        try:
+                            from bs4 import BeautifulSoup
+                            soup = BeautifulSoup(html_body, 'html.parser')
+                            body = soup.get_text(separator=' ', strip=True)
+                        except ImportError:
+                            body = re.sub(r'<[^>]+>', ' ', html_body)
+                            body = re.sub(r'\s+', ' ', body).strip()
                         break
                     except:
                         continue
         else:
-            # Handle simple messages
             try:
                 body = email_message.get_payload(decode=True).decode('utf-8')
             except:
@@ -1220,194 +1463,154 @@ class BankEmailExtractor:
                 except:
                     body = str(email_message.get_payload())
         
-        return body
+        return body[:1500]
+
+def ensure_unique_subscription_ids(subscriptions):
+    """Ensure all subscription IDs are unique"""
+    seen_ids = set()
+    for i, sub in enumerate(subscriptions):
+        original_id = sub['id']
+        counter = 1
+        while sub['id'] in seen_ids:
+            sub['id'] = f"{original_id}_dup_{counter}"
+            counter += 1
+        seen_ids.add(sub['id'])
+    return subscriptions
+
+def display_subscription_card(subscription: Dict, tracker: SubscriptionTracker):
+    """Display a subscription card with NO HTML - Pure Streamlit components only"""
+    next_payment = tracker.get_next_payment_date(subscription)
+    days_until_payment = (next_payment - datetime.now().date()).days
     
-    def extract_amount_with_ai(self, email_text: str, bank_name: str) -> Optional[str]:
-        """Use Replicate AI to extract amount from email text"""
-        if not self.categorizer:
-            return None
-            
-        try:
-            replicate_token = self.config_manager.get_config_value('REPLICATE_API_TOKEN')
-            url = "https://api.replicate.com/v1/models/openai/gpt-4o-mini/predictions"
-            
-            headers = {
-                "Authorization": f"Bearer {replicate_token}",
-                "Content-Type": "application/json"
-            }
-            
-            prompt = f"""
-            Extract the transaction amount from this {bank_name} bank transaction alert email. 
-            
-            Look for patterns like:
-            - "Amount (INR)149.00" or "Amount (USD)149.00"
-            - "Amount: 149.00"
-            - "Rs. 149.00" or "$149.00"
-            - "₹ 149.00" or "$ 149.00"
-            - "Debited for Rs 149.00" or "Debited for $149.00"
-            - "Transaction Amount: INR 149.00" or "Transaction Amount: USD 149.00"
-            
-            Return ONLY the numeric amount with decimal (e.g., "149.00").
-            If multiple amounts are present, return the main transaction amount (not fees or balances).
-            If no amount is found, return "NO_AMOUNT_FOUND".
-            
-            Email content:
-            {email_text}
-            """
-            
-            data = {
-                "input": {
-                    "prompt": prompt,
-                    "system_prompt": f"You are an expert at extracting financial amounts from {bank_name} bank transaction alert emails. Look carefully for transaction amounts in various formats. Return only the numeric value with decimal places, ignoring any fees or balance amounts."
-                }
-            }
-            
-            response = requests.post(url, headers=headers, json=data)
-            
-            if response.status_code == 201:
-                prediction = response.json()
-                prediction_id = prediction['id']
-                return self.poll_prediction(prediction_id)
+    status = subscription.get('status', 'Active')
+    is_trial = subscription.get('is_trial', False)
+    
+    # Calculate yearly cost
+    if subscription['billing_cycle'] == 'Monthly':
+        yearly_cost = subscription['amount'] * 12
+    elif subscription['billing_cycle'] == 'Quarterly':
+        yearly_cost = subscription['amount'] * 4
+    elif subscription['billing_cycle'] == 'Yearly':
+        yearly_cost = subscription['amount']
+    else:
+        yearly_cost = subscription['amount'] * 12
+    
+    service_logo = subscription.get('service_logo', '💳')
+    brand_color = subscription.get('brand_color', '#007bff')
+    
+    # Create a container with border using Streamlit components only
+    with st.container():
+        # Create colored header bar using columns
+        header_col1, header_col2, header_col3 = st.columns([0.1, 8, 1.9])
+        
+        with header_col1:
+            # Color indicator using colored markdown
+            st.markdown(f'<div style="background-color: {brand_color}; width: 100%; height: 60px; border-radius: 5px;"></div>', unsafe_allow_html=True)
+        
+        with header_col2:
+            # Service name and status
+            if is_trial or status == 'Trial':
+                st.markdown(f"### {service_logo} {subscription['service_name']} 🧪 TRIAL")
+                trial_reason = subscription.get('trial_reason', 'Trial detected')
+                st.caption(f"Trial Status: {trial_reason}")
             else:
-                return None
-                
-        except Exception as e:
-            st.error(f"Error with AI extraction: {e}")
-            return None
-    
-    def poll_prediction(self, prediction_id: str, max_attempts: int = 30) -> Optional[str]:
-        """Poll Replicate API for prediction completion"""
-        import time
-        
-        replicate_token = self.config_manager.get_config_value('REPLICATE_API_TOKEN')
-        url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
-        headers = {
-            "Authorization": f"Bearer {replicate_token}"
-        }
-        
-        for attempt in range(max_attempts):
-            try:
-                response = requests.get(url, headers=headers)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    
-                    if result['status'] == 'succeeded':
-                        output = result.get('output', [])
-                        if output:
-                            return ''.join(output).strip()
-                        return None
-                    elif result['status'] == 'failed':
-                        return None
-                    else:
-                        time.sleep(2)
-                        continue
-                else:
-                    return None
-                    
-            except Exception as e:
-                return None
-        
-        return None
-    
-    def extract_amount_regex(self, email_text: str, bank_name: str) -> List[str]:
-        """Fallback method to extract amounts using regex"""
-        patterns = [
-            r'Amount\s*\([A-Z]{3}\)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'Amount\s*:\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'(?:Rs\.?|\$)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'(?:INR|USD)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'(?:₹|\$)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'Debited for (?:Rs\.?|\$)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'Transaction Amount:\s*(?:INR|USD)\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'(\d{1,6}\.\d{2})',
-        ]
-        
-        amounts = []
-        clean_text = re.sub(r'\s+', ' ', email_text)
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, clean_text, re.IGNORECASE)
-            amounts.extend(matches)
-        
-        # Remove duplicates and filter reasonable amounts
-        seen = set()
-        filtered_amounts = []
-        for amount in amounts:
-            if amount not in seen:
-                seen.add(amount)
-                try:
-                    amt_float = float(amount.replace(',', ''))
-                    if 1 <= amt_float <= 1000000:
-                        filtered_amounts.append(amount)
-                except ValueError:
-                    continue
-        
-        return filtered_amounts
-    
-    def process_emails(self, max_emails: int = 50, progress_callback=None) -> List[Dict]:
-        """Main method to process all bank emails and extract amounts with AI categorization"""
-        results = []
-        
-        try:
-            message_ids = self.search_bank_emails(max_emails)
+                status_emoji = "🟢" if status == 'Active' else "🔴"
+                st.markdown(f"### {service_logo} {subscription['service_name']} {status_emoji}")
             
-            for i, message_id in enumerate(message_ids):
-                if progress_callback:
-                    progress_callback(i + 1, len(message_ids))
-                
-                email_data = self.get_email_content(message_id)
-                if not email_data:
-                    continue
-                
-                # Extract amount using AI
-                ai_amount = self.extract_amount_with_ai(email_data['full_text'], email_data['bank'])
-                
-                # Fallback to regex
-                regex_amounts = self.extract_amount_regex(email_data['full_text'], email_data['bank'])
-                
-                # Use AI amount if available, otherwise use first regex amount
-                final_amount = ai_amount if ai_amount and ai_amount != 'NO_AMOUNT_FOUND' else (regex_amounts[0] if regex_amounts else None)
-                
-                # Categorize transaction using AI
-                if self.categorizer:
-                    category = self.categorizer.categorize_transaction_with_ai(
-                        email_data['subject'], 
-                        email_data['body'], 
-                        final_amount or '',
-                        email_data['bank']
-                    )
+            # Service details in clean format
+            col_cat, col_bank, col_conf = st.columns(3)
+            with col_cat:
+                st.write(f"**Category:** {subscription.get('category', 'Other')}")
+            with col_bank:
+                st.write(f"**Bank:** {subscription.get('bank', 'N/A')}")
+            with col_conf:
+                if subscription.get('auto_detected'):
+                    confidence = subscription.get('confidence_score', 0)
+                    st.write(f"**Confidence:** {confidence:.0f}%")
                 else:
-                    category = 'Other'
-                
-                result = {
-                    'message_id': email_data['message_id'],
-                    'date': email_data['date'],
-                    'bank': email_data['bank'],
-                    'subject': email_data['subject'],
-                    'sender': email_data['sender'],
-                    'amount': final_amount,
-                    'category': category,
-                    'ai_extracted_amount': ai_amount,
-                    'regex_extracted_amounts': regex_amounts,
-                    'email_body_preview': email_data['body'][:200] + "..." if len(email_data['body']) > 200 else email_data['body'],
-                    'full_email_text': email_data['full_text']
-                }
-                
-                results.append(result)
+                    st.write("**Type:** Manual")
         
-        except Exception as e:
-            st.error(f"Error processing emails: {e}")
-        finally:
-            # Close IMAP connection
-            if self.mail:
-                try:
-                    self.mail.close()
-                    self.mail.logout()
-                except:
-                    pass
+        with header_col3:
+            # Amount display - clean format
+            st.markdown(f"**₹{subscription['amount']:,.2f}**")
+            st.caption(f"per {subscription['billing_cycle']}")
+            st.caption(f"₹{yearly_cost:,.2f}/year")
         
-        return results
+        # Payment status using Streamlit native alerts
+        if days_until_payment < 0:
+            st.error(f"⚠️ Overdue by {abs(days_until_payment)} days - Due: {next_payment.strftime('%B %d, %Y')}")
+        elif days_until_payment <= 7:
+            st.warning(f"⏰ Due soon: {next_payment.strftime('%B %d, %Y')} ({days_until_payment} days)")
+        else:
+            st.info(f"📅 Next payment: {next_payment.strftime('%B %d, %Y')} ({days_until_payment} days)")
+        
+        # Clean separator
+        st.divider()
+
+def create_subscription_visualizations(subscriptions: List[Dict], metrics: Dict):
+    """Create visualizations for subscription data with trial handling"""
+    if not subscriptions:
+        return None, None, None
+    
+    monthly_data = pd.DataFrame(list(metrics['monthly_breakdown'].items()), 
+                               columns=['Service', 'Monthly Amount'])
+    
+    color_map = {}
+    for sub in subscriptions:
+        if sub.get('status', 'Active') in ['Active', 'Trial']:
+            color_map[sub['service_name']] = sub.get('brand_color', '#007bff')
+    
+    fig_monthly = px.pie(
+        monthly_data,
+        names='Service',
+        values='Monthly Amount',
+        title='Monthly Subscription Spending by Service',
+        color='Service',
+        color_discrete_map=color_map
+    )
+    
+    category_data = pd.DataFrame(list(metrics['category_breakdown'].items()), 
+                                columns=['Category', 'Monthly Amount'])
+    
+    category_colors = {}
+    for category in metrics['category_breakdown'].keys():
+        cat_subs = [sub for sub in subscriptions if sub.get('category') == category and sub.get('status', 'Active') in ['Active', 'Trial']]
+        if cat_subs:
+            category_colors[category] = cat_subs[0].get('brand_color', '#007bff')
+        else:
+            category_colors[category] = '#007bff'
+    
+    fig_category = px.bar(
+        category_data,
+        x='Category',
+        y='Monthly Amount',
+        title='Monthly Subscription Spending by Category',
+        color='Category',
+        color_discrete_map=category_colors
+    )
+    
+    months = list(range(1, 13))
+    cumulative_spending = [metrics['total_monthly'] * month for month in months]
+    
+    fig_yearly = px.line(
+        x=months,
+        y=cumulative_spending,
+        title='Cumulative Subscription Spending (Yearly Projection)',
+        labels={'x': 'Month', 'y': 'Cumulative Spending (₹)'}
+    )
+    
+    current_month = datetime.now().month
+    current_spending = metrics['total_monthly'] * current_month
+    
+    fig_yearly.add_scatter(
+        x=[current_month],
+        y=[current_spending],
+        mode='markers',
+        marker=dict(size=12, color='red'),
+        name='Current Month'
+    )
+    
+    return fig_monthly, fig_category, fig_yearly
 
 def apply_date_filter(df: pd.DataFrame) -> pd.DataFrame:
     """Apply date filter from session state if enabled"""
@@ -1416,7 +1619,6 @@ def apply_date_filter(df: pd.DataFrame) -> pd.DataFrame:
         end_date = st.session_state.get('date_filter_end')
         
         if start_date and end_date:
-            # Ensure we have parsed dates
             if 'date_parsed' in df.columns:
                 mask = (df['date_parsed'].dt.date >= start_date) & (df['date_parsed'].dt.date <= end_date)
                 return df[mask]
@@ -1424,19 +1626,22 @@ def apply_date_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def create_visualizations(df, categorizer):
-    """Create various visualizations for the transaction data"""
+    """Create various visualizations for the transaction data with collapsible containers"""
     
-    # Apply global date filter
     df_filtered = apply_date_filter(df)
     
     if len(df_filtered) == 0:
         st.warning("No transactions found in the selected date range.")
         return None, None, None, None, None, None, None
     
-    # Get the color map from categorizer
-    color_map = {cat: categorizer.get_category_color(cat) for cat in df_filtered['category'].unique()}
+    color_map = {}
+    if hasattr(categorizer, 'category_colors'):
+        color_map = categorizer.category_colors
+    else:
+        unique_categories = df_filtered['category'].unique()
+        colors = px.colors.qualitative.Set3
+        color_map = {cat: colors[i % len(colors)] for i, cat in enumerate(unique_categories)}
     
-    # Category Distribution Pie Chart by Amount
     category_amounts = df_filtered.groupby('category')['amount_numeric'].sum().reset_index()
     fig_pie = px.pie(
         category_amounts,
@@ -1448,7 +1653,6 @@ def create_visualizations(df, categorizer):
     )
     fig_pie.update_traces(textposition='inside', textinfo='percent+label')
     
-    # Amount by Category Bar Chart
     fig_bar = px.bar(
         category_amounts, 
         x='category', 
@@ -1459,7 +1663,6 @@ def create_visualizations(df, categorizer):
     )
     fig_bar.update_layout(xaxis_tickangle=-45)
     
-    # Timeline of transactions
     df_sorted = df_filtered.sort_values('date_parsed')
     fig_timeline = px.line(
         df_sorted, 
@@ -1471,7 +1674,6 @@ def create_visualizations(df, categorizer):
         color_discrete_map=color_map
     )
     
-    # Monthly spending trends
     df_sorted['month'] = df_sorted['date_parsed'].dt.to_period('M')
     monthly_spending = df_sorted.groupby(['month', 'category'])['amount_numeric'].sum().reset_index()
     monthly_spending['month'] = monthly_spending['month'].astype(str)
@@ -1485,25 +1687,19 @@ def create_visualizations(df, categorizer):
         color_discrete_map=color_map
     )
     
-    # Bank-wise spending
     bank_spending = df_filtered.groupby('bank')['amount_numeric'].sum().reset_index()
     fig_bank = px.pie(
         bank_spending,
         names='bank',
         values='amount_numeric',
-        title='Spending Distribution by Bank',
-        color='bank'
+        title='Spending Distribution by Bank'
     )
     
-    # Weekly spending heatmap
     df_filtered['weekday'] = df_filtered['date_parsed'].dt.day_name()
     df_filtered['week'] = df_filtered['date_parsed'].dt.isocalendar().week
-    df_filtered['year'] = df_filtered['date_parsed'].dt.year
     
-    # Create heatmap data
     heatmap_data = df_filtered.groupby(['weekday', 'week'])['amount_numeric'].sum().reset_index()
     
-    # Order weekdays properly
     weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     heatmap_data['weekday'] = pd.Categorical(heatmap_data['weekday'], categories=weekday_order, ordered=True)
     heatmap_data = heatmap_data.sort_values('weekday')
@@ -1517,7 +1713,6 @@ def create_visualizations(df, categorizer):
         color_continuous_scale='Blues'
     )
     
-    # Daily spending pattern
     df_filtered['hour'] = df_filtered['date_parsed'].dt.hour
     hourly_spending = df_filtered.groupby('hour')['amount_numeric'].sum().reset_index()
     
@@ -1531,6 +1726,71 @@ def create_visualizations(df, categorizer):
     
     return fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly
 
+def create_subscription_visualizations(subscriptions: List[Dict], metrics: Dict):
+    """Create visualizations for subscription data with collapsible containers"""
+    if not subscriptions:
+        return None, None, None
+    
+    monthly_data = pd.DataFrame(list(metrics['monthly_breakdown'].items()), 
+                               columns=['Service', 'Monthly Amount'])
+    
+    color_map = {}
+    for sub in subscriptions:
+        if sub.get('status', 'Active') in ['Active', 'Trial']:
+            color_map[sub['service_name']] = sub.get('brand_color', '#007bff')
+    
+    fig_monthly = px.pie(
+        monthly_data,
+        names='Service',
+        values='Monthly Amount',
+        title='Monthly Subscription Spending by Service',
+        color='Service',
+        color_discrete_map=color_map
+    )
+    
+    category_data = pd.DataFrame(list(metrics['category_breakdown'].items()), 
+                                columns=['Category', 'Monthly Amount'])
+    
+    category_colors = {}
+    for category in metrics['category_breakdown'].keys():
+        cat_subs = [sub for sub in subscriptions if sub.get('category') == category and sub.get('status', 'Active') in ['Active', 'Trial']]
+        if cat_subs:
+            category_colors[category] = cat_subs[0].get('brand_color', '#007bff')
+        else:
+            category_colors[category] = '#007bff'
+    
+    fig_category = px.bar(
+        category_data,
+        x='Category',
+        y='Monthly Amount',
+        title='Monthly Subscription Spending by Category',
+        color='Category',
+        color_discrete_map=category_colors
+    )
+    
+    months = list(range(1, 13))
+    cumulative_spending = [metrics['total_monthly'] * month for month in months]
+    
+    fig_yearly = px.line(
+        x=months,
+        y=cumulative_spending,
+        title='Cumulative Subscription Spending (Yearly Projection)',
+        labels={'x': 'Month', 'y': 'Cumulative Spending (₹)'}
+    )
+    
+    current_month = datetime.now().month
+    current_spending = metrics['total_monthly'] * current_month
+    
+    fig_yearly.add_scatter(
+        x=[current_month],
+        y=[current_spending],
+        mode='markers',
+        marker=dict(size=12, color='red'),
+        name='Current Month'
+    )
+    
+    return fig_monthly, fig_category, fig_yearly
+
 def create_metric_card(title, value, delta=None):
     """Helper function to create a metric card"""
     st.markdown(f"""
@@ -1541,18 +1801,34 @@ def create_metric_card(title, value, delta=None):
     """, unsafe_allow_html=True)
 
 def display_transaction_card(row, categorizer):
-    """Display a transaction as a card"""
+    """Display a transaction as a card with trial indicators"""
     amount_color = "#FF6B6B" if float(row['amount_numeric']) < 0 else "#4CAF50"
-    category_color = categorizer.get_category_color(row['category'])
+    
+    if hasattr(categorizer, 'category_colors') and row['category'] in categorizer.category_colors:
+        category_color = categorizer.category_colors[row['category']]
+    else:
+        category_color = row.get('category_color', '#6C757D')
+    
+    merchant_name = row.get('merchant_name', row['subject'][:50])
+    confidence = row.get('confidence', 0)
+    is_subscription = row.get('is_subscription', False)
+    is_trial = row.get('is_trial', False)
+    
+    subscription_badge = ""
+    if is_subscription:
+        if is_trial:
+            subscription_badge = f' <span style="background-color: #ffc107; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px;">TRIAL</span>'
+        else:
+            subscription_badge = f' <span style="background-color: #28a745; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px;">SUBSCRIPTION</span>'
     
     st.markdown(f"""
     <div class="transaction-card">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <div class="transaction-date">{row['date_parsed'].strftime('%b %d, %Y %I:%M %p')}</div>
-                <div class="transaction-merchant">{row['subject'][:50]}</div>
+                <div class="transaction-merchant">{merchant_name}{subscription_badge}</div>
             </div>
-            <div class="transaction-amount" style="color: {amount_color};">${abs(float(row['amount_numeric'])):,.2f}</div>
+            <div class="transaction-amount" style="color: {amount_color};">₹{abs(float(row['amount_numeric'])):,.2f}</div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
             <div>
@@ -1568,7 +1844,7 @@ def main():
     
     st.markdown("""
     <div style="display: flex; align-items: center; margin-bottom: 20px;">
-        <h1 style="margin: 0;">🏦 Expense Tracker</h1>
+        <h1 style="margin: 0;">🏦 AI Expense & Subscription Tracker</h1>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1578,21 +1854,28 @@ def main():
     </p>
     """, unsafe_allow_html=True)
     
+    # Initialize session state
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    if 'user_email' not in st.session_state:
+        st.session_state.user_email = None
+    if 'subscriptions' not in st.session_state:
+        st.session_state.subscriptions = []
+    
     # Add image here (only shown when not authenticated)
     if not st.session_state.authenticated:
-        # Using a banking/finance themed image from Unsplash
         st.image(
-            "https://tanishmittal.com/wp-content/uploads/2025/06/Expense-Tracker.png",
-            caption="AI-powered transaction analysis",
+            "https://tanishmittal.com/wp-content/uploads/2025/07/Expense-Tracker-V2.0.png",
+            caption="Expense Tracker",
             use_container_width=True
         )
         
         # Supported banks section
-        st.markdown("### Supported Banks:")
+        st.markdown("### 🏦 Supported Banks")
         cols = st.columns(2)
         with cols[0]:
             st.markdown("""
-            **Indian Banks:**
+            **🇮🇳 Indian Banks:**
             - SBI (Debit/ATM alerts)
             - HDFC Bank (Card)
             - ICICI Bank (Card/net banking)
@@ -1602,7 +1885,7 @@ def main():
             - Yes Bank
             - IndusInd Bank
             
-            **International Banks:**
+            **🌍 International Banks:**
             - Chase
             - Bank of America
             - Citi Bank
@@ -1611,7 +1894,7 @@ def main():
 
         with cols[1]:
             st.markdown("""
-            **International Banks (cont.):**
+            **🌍 International Banks (cont.):**
             - Capital One
             - American Express
             - Discover
@@ -1626,18 +1909,18 @@ def main():
             - TD Bank
             - Charles Schwab
             """)
-
     
-    # Initialize configuration manager
     config_manager = ConfigManager()
+    subscription_tracker = SubscriptionTracker(config_manager)
     
-    # Sidebar for authentication and configuration
+    tab1, tab2, tab3 = st.tabs(["💳 Transaction Analysis", "🔄 Subscription Tracker", "📊 Combined Insights"])
+    
+    # Sidebar for authentication
     st.sidebar.header("🔐 Authentication")
-
+    
     if not st.session_state.authenticated:
         st.sidebar.info("Please login with your Gmail credentials to analyze bank transactions")
         
-        # Email and password input
         with st.sidebar.form("login_form"):
             email_address = st.text_input(
                 "Gmail Address", 
@@ -1669,13 +1952,12 @@ def main():
                             st.session_state.extractor = extractor
                             st.rerun()
         
-        # Help section
         with st.sidebar.expander("ℹ️ Gmail Authentication Help"):
             st.write("""
             **For Gmail accounts with 2-Factor Authentication:**
             1. Go to Google Account settings
             2. Security → 2-Step Verification
-            3. App passwords → Generate new password- https://myaccount.google.com/apppasswords
+            3. App passwords → Generate new password
             4. Use the generated password here
             
             **For accounts without 2FA:**
@@ -1686,11 +1968,9 @@ def main():
         st.sidebar.success(f"✅ Logged in as: {st.session_state.user_email}")
         
         if st.sidebar.button("Logout"):
-            # Clear authentication state
             st.session_state.authenticated = False
             st.session_state.user_email = None
             
-            # Clear other session data
             keys_to_clear = ['transaction_data', 'categorizer', 'results_processed', 
                            'date_filter_enabled', 'date_filter_start', 'date_filter_end', 'extractor']
             for key in keys_to_clear:
@@ -1699,19 +1979,15 @@ def main():
             
             st.rerun()
 
-    # Only show configuration and other options if authenticated
     if st.session_state.authenticated:
         st.sidebar.header("⚙️ Configuration")
         config_manager.display_config_status()
         
-        # Settings
         st.sidebar.subheader("🔧 Analysis Settings")
-        max_emails = st.sidebar.slider("Max Emails to Process", 5, 100, 20, help="Limit the number of emails to analyze for faster processing")
+        max_emails = st.sidebar.slider("Max Emails to Process", 5, 100, 25, help="Limit the number of emails to analyze")
 
-        # Date Range Filter
         st.sidebar.subheader("📅 Date Range Filter")
         
-        # Initialize date filter state if not exists
         if 'date_filter_enabled' not in st.session_state:
             st.session_state.date_filter_enabled = False
         
@@ -1721,15 +1997,12 @@ def main():
             key='date_filter_checkbox'
         )
         
-        # Update session state
         st.session_state.date_filter_enabled = date_filter_enabled
-
+        
         if date_filter_enabled:
-            # Set default date range (last 30 days)
             default_end = datetime.now().date()
             default_start = default_end - timedelta(days=30)
             
-            # Get existing values from session state or use defaults
             existing_start = st.session_state.get('date_filter_start', default_start)
             existing_end = st.session_state.get('date_filter_end', default_end)
             
@@ -1745,329 +2018,688 @@ def main():
                 key='date_end_input'
             )
             
-            # Store in session state
             st.session_state.date_filter_start = start_date
             st.session_state.date_filter_end = end_date
             
-            # Show current filter status
             st.sidebar.info(f"Filtering: {start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}")
         else:
-            # Clear date filter from session state when disabled
             if 'date_filter_start' in st.session_state:
                 del st.session_state['date_filter_start']
             if 'date_filter_end' in st.session_state:
-                del st.session_state['date_filter_end']        
-        # Main content area
-        if not config_manager.validate_config():
-            st.error("⚠️ Configuration incomplete!")
-            st.error("Please set up your Replicate API token in the `.secret` file.")
-            return
+                del st.session_state['date_filter_end']
+
+        # Subscription management options
+        st.sidebar.subheader("🔄 Subscription Management")
+        if st.sidebar.button("🔄 Reset Subscription Data"):
+            st.session_state.subscriptions = []
+            st.sidebar.success("Subscription data reset!")
+
+    with tab1:  # Transaction Analysis Tab
+        st.header("💳 AI Transaction Analysis")
         
-        # Process transactions button
-        if st.button("🔍 Analyze Bank Transactions", type="primary", use_container_width=True):
-            with st.spinner(f"Processing up to {max_emails} emails..."):
-                
-                # Create progress bar
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                def update_progress(current, total):
-                    progress = current / total
-                    progress_bar.progress(progress)
-                    status_text.text(f"Processing email {current}/{total}")
-                
-                # Get extractor from session state or create new one
-                if 'extractor' in st.session_state:
-                    extractor = st.session_state.extractor
-                else:
-                    extractor = BankEmailExtractor(config_manager)
-                    # Re-authenticate
-                    success, _ = extractor.authenticate_gmail(st.session_state.user_email, "")
-                    if not success:
-                        st.error("Re-authentication failed. Please logout and login again.")
-                        return
-                
-                # Process emails
-                results = extractor.process_emails(max_emails, update_progress)
-                
-                # Clear progress indicators
-                progress_bar.empty()
-                status_text.empty()
-                
-                if results:
-                    st.session_state.transaction_data = results
-                    st.session_state.results_processed = True
-                    st.session_state.categorizer = extractor.categorizer
-                    st.success(f"✅ Successfully processed {len(results)} transaction emails!")
-                else:
-                    st.warning("No bank transaction emails found or processed.")
-        
-        # Display results if available
-        if st.session_state.get('results_processed', False) and 'transaction_data' in st.session_state:
-            results = st.session_state.transaction_data
-            categorizer = st.session_state.categorizer
-            
-            # Convert to DataFrame for analysis
-            df = pd.DataFrame(results)
-            
-            # Parse dates and amounts
-            df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
-            df['amount_numeric'] = pd.to_numeric(df['amount'].str.replace(',', ''), errors='coerce')
-            
-            # Filter out rows without valid amounts or dates
-            df = df.dropna(subset=['amount_numeric', 'date_parsed'])
-            
-            if len(df) == 0:
-                st.warning("No valid transactions with amounts found.")
+        if st.session_state.authenticated:
+            if not config_manager.validate_config():
+                st.error("⚠️ Configuration incomplete!")
+                st.error("Please set up your Replicate API token in the `.secret` file.")
                 return
             
-            # Apply date filter
-            df_display = apply_date_filter(df)
+            if st.button("🔍 Analyze Transactions with AI", type="primary", use_container_width=True):
+                with st.spinner(f"Processing with AI analysis..."):
+                    
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    def update_progress(current, total):
+                        progress = current / total
+                        progress_bar.progress(progress)
+                        status_text.text(f"Processing email {current}/{total}")
+                    
+                    if 'extractor' in st.session_state:
+                        extractor = st.session_state.extractor
+                    else:
+                        extractor = BankEmailExtractor(config_manager)
+                        success, _ = extractor.authenticate_gmail(st.session_state.user_email, "")
+                        if not success:
+                            st.error("Re-authentication failed. Please logout and login again.")
+                            return
+                    
+                    results = extractor.process_emails(max_emails, update_progress)
+                    
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    if results:
+                        st.session_state.transaction_data = results
+                        st.session_state.results_processed = True
+                        st.session_state.categorizer = extractor.categorizer
+                        st.success(f"✅ Successfully processed {len(results)} transactions!")
+                        
+                        categories = list(set([r['category'] for r in results if r.get('category')]))
+                        vendors = list(set([r['merchant_name'] for r in results if r.get('merchant_name') and r['merchant_name'] != 'Unknown Vendor']))
+                        valid_amounts = [r for r in results if r.get('amount')]
+                        subscription_count = len([r for r in results if r.get('is_subscription', False)])
+                        trial_count = len([r for r in results if r.get('is_trial', False)])
+                        
+                        col1, col2, col3, col4, col5 = st.columns(5)
+                        with col1:
+                            st.metric("Categories", len(categories))
+                        with col2:
+                            st.metric("Vendors", len(vendors))
+                        with col3:
+                            st.metric("Valid Amounts", len(valid_amounts))
+                        with col4:
+                            st.metric("Subscriptions", subscription_count)
+                        with col5:
+                            st.metric("Trials", trial_count)
+                    else:
+                        st.warning("No bank transaction emails found or processed.")
             
-            # Show summary statistics
-            st.header("📊 Transaction Summary")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                create_metric_card("Total Transactions", len(df_display))
-            
-            with col2:
-                total_amount = df_display['amount_numeric'].sum()
-                create_metric_card("Total Amount", f"${total_amount:,.2f}")
-            
-            with col3:
-                avg_amount = df_display['amount_numeric'].mean()
-                create_metric_card("Average Amount", f"${avg_amount:,.2f}")
-            
-            with col4:
-                date_range = df_display['date_parsed'].max() - df_display['date_parsed'].min()
-                create_metric_card("Date Range", f"{date_range.days} days")
-            
-            # Recent transactions preview
-            st.header("🔄 Recent Transactions")
-            
-            # Display last 5 transactions as cards
-            recent_transactions = df_display.sort_values('date_parsed', ascending=False).head(5)
-            
-            for _, row in recent_transactions.iterrows():
-                display_transaction_card(row, categorizer)
-            
-            # Create visualizations
-            st.header("📈 Transaction Analysis")
-            
-            if len(df_display) > 0:
-                fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly = create_visualizations(df, categorizer)
+            # Display results if available
+            if st.session_state.get('results_processed', False) and 'transaction_data' in st.session_state:
+                results = st.session_state.transaction_data
+                categorizer = st.session_state.categorizer
                 
-                if fig_pie:
-                    # Display charts in tabs
-                    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-                        "Category Distribution", 
-                        "Amount by Category", 
-                        "Timeline", 
-                        "Monthly Trends",
-                        "Bank Distribution",
-                        "Weekly Pattern",
-                        "Hourly Pattern"
-                    ])
+                df = pd.DataFrame(results)
+                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
+                df['amount_numeric'] = pd.to_numeric(df['amount'], errors='coerce')
+                df = df.dropna(subset=['amount_numeric', 'date_parsed'])
+
+                if len(df) == 0:
+                    st.warning("No valid transactions with amounts found.")
+                    return
+                
+                df_display = apply_date_filter(df)
+                
+                st.header("📊 Transaction Summary")
+                
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
+                
+                with col1:
+                    create_metric_card("Total Transactions", len(df_display))
+                
+                with col2:
+                    total_amount = df_display['amount_numeric'].sum()
+                    create_metric_card("Total Amount", f"₹{total_amount:,.2f}")
+                
+                with col3:
+                    unique_vendors = df_display['merchant_name'].nunique()
+                    create_metric_card("Unique Vendors", unique_vendors)
+                
+                with col4:
+                    unique_categories = df_display['category'].nunique()
+                    create_metric_card("Categories", unique_categories)
+                
+                with col5:
+                    subscription_count = len(df_display[df_display.get('is_subscription', False) == True])
+                    create_metric_card("Subscriptions", subscription_count)
+                
+                with col6:
+                    trial_count = len(df_display[df_display.get('is_trial', False) == True])
+                    create_metric_card("Trials Detected", trial_count)
+                
+                # AI Insights
+                st.header("🤖 AI-Generated Insights")
+                insights_col1, insights_col2, insights_col3 = st.columns(3)
+                
+                with insights_col1:
+                    top_category = df_display.groupby('category')['amount_numeric'].sum().idxmax()
+                    top_category_amount = df_display.groupby('category')['amount_numeric'].sum().max()
+                    st.info(f"**Top Spending Category:** {top_category} (₹{top_category_amount:,.2f})")
+                
+                with insights_col2:
+                    avg_transaction = df_display['amount_numeric'].mean()
+                    st.info(f"**Average Transaction:** ₹{avg_transaction:,.2f}")
+                
+                with insights_col3:
+                    most_used_bank = df_display['bank'].mode().iloc[0] if not df_display['bank'].mode().empty else "N/A"
+                    st.info(f"**Most Used Bank:** {most_used_bank}")
+                
+                # COLLAPSIBLE VISUALIZATIONS SECTION
+                st.header("📈 Transaction Analysis Charts")
+                
+                viz_results = create_visualizations(df, categorizer)
+                if viz_results[0] is not None:
+                    fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly = viz_results
                     
-                    with tab1:
-                        st.plotly_chart(fig_pie, use_container_width=True)
+                    # Category Analysis Charts (Collapsible)
+                    with st.expander("📊 Category Analysis Charts", expanded=False):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                        with col2:
+                            st.plotly_chart(fig_bar, use_container_width=True)
                     
-                    with tab2:
-                        st.plotly_chart(fig_bar, use_container_width=True)
-                    
-                    with tab3:
+                    # Timeline Analysis (Collapsible)
+                    with st.expander("📈 Timeline Analysis", expanded=False):
                         st.plotly_chart(fig_timeline, use_container_width=True)
                     
-                    with tab4:
-                        st.plotly_chart(fig_monthly, use_container_width=True)
+                    # Monthly & Bank Analysis (Collapsible)
+                    with st.expander("📅 Monthly & Bank Analysis", expanded=False):
+                        col3, col4 = st.columns(2)
+                        with col3:
+                            st.plotly_chart(fig_monthly, use_container_width=True)
+                        with col4:
+                            st.plotly_chart(fig_bank, use_container_width=True)
                     
-                    with tab5:
-                        st.plotly_chart(fig_bank, use_container_width=True)
-                    
-                    with tab6:
-                        st.plotly_chart(fig_heatmap, use_container_width=True)
-                    
-                    with tab7:
-                        st.plotly_chart(fig_hourly, use_container_width=True)
-            
-            # Category breakdown
-            st.header("🏷️ Category Breakdown")
-            
-            category_summary = df_display.groupby('category').agg({
-                'amount_numeric': ['count', 'sum', 'mean', 'max', 'min']
-            }).round(2)
-            
-            category_summary.columns = ['Count', 'Total Amount', 'Average Amount', 'Max Amount', 'Min Amount']
-            category_summary = category_summary.sort_values('Total Amount', ascending=False)
-            
-            # Add color coding
-            def color_categories(row):
-                color = categorizer.get_category_color(row.name)
-                return [f'background-color: {color}; color: white' for _ in row]
-            
-            styled_summary = category_summary.style.apply(color_categories, axis=1)
-            st.dataframe(styled_summary, use_container_width=True)
-            
-            # Bank breakdown
-            st.header("🏦 Bank Breakdown")
-            
-            bank_summary = df_display.groupby('bank').agg({
-                'amount_numeric': ['count', 'sum', 'mean', 'max', 'min']
-            }).round(2)
-            
-            bank_summary.columns = ['Count', 'Total Amount', 'Average Amount', 'Max Amount', 'Min Amount']
-            bank_summary = bank_summary.sort_values('Total Amount', ascending=False)
-            
-            st.dataframe(bank_summary, use_container_width=True)
-            
-            # Detailed transaction table
-            st.header("📋 Transaction Details")
-            
-            # Add filters
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                selected_banks = st.multiselect(
-                    "Filter by Bank",
-                    options=df_display['bank'].unique(),
-                    default=df_display['bank'].unique()
+                    # Advanced Pattern Analysis (Collapsible)
+                    with st.expander("🔍 Advanced Pattern Analysis", expanded=False):
+                        col5, col6 = st.columns(2)
+                        with col5:
+                            st.plotly_chart(fig_heatmap, use_container_width=True)
+                        with col6:
+                            st.plotly_chart(fig_hourly, use_container_width=True)
+                
+                # Transaction Details
+                st.header("🔍 Transaction Details")
+                
+                # Filters
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    selected_categories = st.multiselect(
+                        "Filter by Category",
+                        options=sorted(df_display['category'].unique()),
+                        default=[]
+                    )
+                
+                with col2:
+                    selected_banks = st.multiselect(
+                        "Filter by Bank",
+                        options=sorted(df_display['bank'].unique()),
+                        default=[]
+                    )
+                
+                with col3:
+                    amount_range = st.slider(
+                        "Amount Range (₹)",
+                        min_value=float(df_display['amount_numeric'].min()),
+                        max_value=float(df_display['amount_numeric'].max()),
+                        value=(float(df_display['amount_numeric'].min()), float(df_display['amount_numeric'].max())),
+                        step=10.0
+                    )
+                
+                # Apply filters
+                filtered_df = df_display.copy()
+                if selected_categories:
+                    filtered_df = filtered_df[filtered_df['category'].isin(selected_categories)]
+                if selected_banks:
+                    filtered_df = filtered_df[filtered_df['bank'].isin(selected_banks)]
+                
+                filtered_df = filtered_df[
+                    (filtered_df['amount_numeric'] >= amount_range[0]) &
+                    (filtered_df['amount_numeric'] <= amount_range[1])
+                ]
+                
+                st.write(f"Showing {len(filtered_df)} transactions")
+                
+                # Sort options
+                sort_by = st.selectbox(
+                    "Sort by",
+                    ["Date (Newest first)", "Date (Oldest first)", "Amount (High to Low)", "Amount (Low to High)", "Category"]
                 )
-            
-            with col2:
-                selected_categories = st.multiselect(
-                    "Filter by Category",
-                    options=df_display['category'].unique(),
-                    default=df_display['category'].unique()
-                )
-            
-            with col3:
-                amount_filter = st.selectbox(
-                    "Amount Range",
-                    ["All", "< $100", "$100-$500", "$500-$1000", "$1000-$5000", "> $5000"]
-                )
-            
-            with col4:
-                sort_option = st.selectbox(
-                    "Sort By",
-                    ["Date (Newest)", "Date (Oldest)", "Amount (High)", "Amount (Low)"]
-                )
-            
-            # Apply filters
-            filtered_df = df_display[
-                (df_display['bank'].isin(selected_banks)) & 
-                (df_display['category'].isin(selected_categories))
-            ]
-            
-            if amount_filter != "All":
-                if amount_filter == "< $100":
-                    filtered_df = filtered_df[filtered_df['amount_numeric'] < 100]
-                elif amount_filter == "$100-$500":
-                    filtered_df = filtered_df[(filtered_df['amount_numeric'] >= 100) & 
-                                            (filtered_df['amount_numeric'] < 500)]
-                elif amount_filter == "$500-$1000":
-                    filtered_df = filtered_df[(filtered_df['amount_numeric'] >= 500) & 
-                                            (filtered_df['amount_numeric'] < 1000)]
-                elif amount_filter == "$1000-$5000":
-                    filtered_df = filtered_df[(filtered_df['amount_numeric'] >= 1000) & 
-                                            (filtered_df['amount_numeric'] < 5000)]
-                elif amount_filter == "> $5000":
-                    filtered_df = filtered_df[filtered_df['amount_numeric'] >= 5000]
-            
-            # Apply sorting
-            if sort_option == "Date (Newest)":
-                filtered_df = filtered_df.sort_values('date_parsed', ascending=False)
-            elif sort_option == "Date (Oldest)":
-                filtered_df = filtered_df.sort_values('date_parsed', ascending=True)
-            elif sort_option == "Amount (High)":
-                filtered_df = filtered_df.sort_values('amount_numeric', ascending=False)
-            elif sort_option == "Amount (Low)":
-                filtered_df = filtered_df.sort_values('amount_numeric', ascending=True)
-            
-            # Display view options
-            view_option = st.radio("View Mode", ["Cards", "Table"], horizontal=True)
-            
-            if view_option == "Cards":
-                # Display as cards
+                
+                if sort_by == "Date (Newest first)":
+                    filtered_df = filtered_df.sort_values('date_parsed', ascending=False)
+                elif sort_by == "Date (Oldest first)":
+                    filtered_df = filtered_df.sort_values('date_parsed', ascending=True)
+                elif sort_by == "Amount (High to Low)":
+                    filtered_df = filtered_df.sort_values('amount_numeric', ascending=False)
+                elif sort_by == "Amount (Low to High)":
+                    filtered_df = filtered_df.sort_values('amount_numeric', ascending=True)
+                elif sort_by == "Category":
+                    filtered_df = filtered_df.sort_values('category')
+                
+                # Display transactions as cards
                 for _, row in filtered_df.iterrows():
                     display_transaction_card(row, categorizer)
-            else:
-                # Display as table
-                display_columns = ['date_parsed', 'bank', 'subject', 'amount', 'category', 'email_body_preview']
-                display_df = filtered_df[display_columns].copy()
-                display_df['date_parsed'] = display_df['date_parsed'].dt.strftime('%Y-%m-%d %H:%M')
-                display_df.columns = ['Date', 'Bank', 'Subject', 'Amount', 'Category', 'Preview']
                 
-                st.dataframe(display_df, use_container_width=True)
-            
-            # Export functionality
-            st.header("💾 Export Data")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                # Export to CSV
-                csv_data = filtered_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download as CSV",
-                    data=csv_data,
-                    file_name=f"bank_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-            
-            with col2:
-                # Export summary
-                summary_data = category_summary.to_csv()
-                st.download_button(
-                    label="📊 Download Summary",
-                    data=summary_data,
-                    file_name=f"bank_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-            
-            with col3:
-                # Export all data
-                all_data = df.to_csv(index=False)
-                st.download_button(
-                    label="📂 Download All Data",
-                    data=all_data,
-                    file_name=f"bank_all_transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
+                # Export options
+                st.header("📤 Export Data")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("📁 Download CSV", use_container_width=True):
+                        csv_data = filtered_df.to_csv(index=False)
+                        st.download_button(
+                            label="💾 Download Filtered Transactions",
+                            data=csv_data,
+                            file_name=f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv"
+                        )
+                
+                with col2:
+                    if st.button("📊 Download Full Analysis", use_container_width=True):
+                        analysis_data = {
+                            'summary': {
+                                'total_transactions': len(df_display),
+                                'total_amount': float(df_display['amount_numeric'].sum()),
+                                'date_range': f"{df_display['date_parsed'].min().date()} to {df_display['date_parsed'].max().date()}",
+                                'categories': df_display['category'].value_counts().to_dict(),
+                                'banks': df_display['bank'].value_counts().to_dict(),
+                                'subscription_count': len(df_display[df_display.get('is_subscription', False) == True]),
+                                'trial_count': len(df_display[df_display.get('is_trial', False) == True])
+                            },
+                            'transactions': df_display.to_dict('records')
+                        }
+                        
+                        json_data = json.dumps(analysis_data, default=str, indent=2)
+                        st.download_button(
+                            label="💾 Download Full Analysis (JSON)",
+                            data=json_data,
+                            file_name=f"full_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime="application/json"
+                        )
+        else:
+            st.info("Please authenticate with Gmail to analyze your transaction emails.")
+
+    with tab2:  # Subscription Tracker Tab
+        st.header("🔄 AI Subscription Tracker")
         
-        # Instructions section
-        if not st.session_state.get('results_processed', False):
-            st.header("🚀 How to Use")
+        if st.session_state.authenticated:
+            # Auto-detect subscriptions from transaction data
+            if st.session_state.get('transaction_data'):
+                df = pd.DataFrame(st.session_state.transaction_data)
+                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
+                df['amount_numeric'] = pd.to_numeric(df['amount'], errors='coerce')
+                df = df.dropna(subset=['amount_numeric', 'date_parsed'])
+                
+                if st.button("🔍 Auto-Detect Subscriptions from Transactions", type="primary"):
+                    with st.spinner("Analyzing transactions for subscription patterns..."):
+                        detected_subs = subscription_tracker.detect_subscriptions_from_transactions(df)
+                        
+                        if detected_subs:
+                            # Ensure unique IDs
+                            detected_subs = ensure_unique_subscription_ids(detected_subs)
+                            
+                            # Merge with existing subscriptions, avoiding duplicates
+                            existing_ids = {sub['id'] for sub in st.session_state.subscriptions}
+                            new_subs = [sub for sub in detected_subs if sub['id'] not in existing_ids]
+                            
+                            st.session_state.subscriptions.extend(new_subs)
+                            
+                            st.success(f"✅ Detected {len(detected_subs)} subscriptions! ({len(new_subs)} new)")
+                            
+                            # Show detection summary
+                            trial_count = len([sub for sub in detected_subs if sub.get('is_trial', False)])
+                            active_count = len([sub for sub in detected_subs if sub.get('status') == 'Active'])
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total Detected", len(detected_subs))
+                            with col2:
+                                st.metric("Active Subscriptions", active_count)
+                            with col3:
+                                st.metric("Trials Detected", trial_count)
+                        else:
+                            st.warning("No subscription patterns detected in your transactions.")
             
-            st.markdown("""
-### Steps to Analyze Your Bank Transactions:
+            # Manual subscription addition
+            st.subheader("➕ Add Manual Subscription")
+            with st.form("add_subscription"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    service_name = st.text_input("Service Name", placeholder="e.g., Netflix, Spotify")
+                    amount = st.number_input("Amount", min_value=0.01, step=0.01, format="%.2f")
+                    billing_cycle = st.selectbox("Billing Cycle", ["Monthly", "Quarterly", "Yearly"])
+                
+                with col2:
+                    category = st.text_input("Category", placeholder="e.g., Streaming, Software")
+                    start_date = st.date_input("Start Date", value=datetime.now().date())
+                    bank = st.selectbox("Bank", ["SBI", "HDFC Bank", "ICICI Bank", "Axis Bank", "Other"])
+                
+                if st.form_submit_button("Add Subscription", type="primary"):
+                    if service_name and amount:
+                        subscription_data = {
+                            'service_name': service_name,
+                            'amount': amount,
+                            'billing_cycle': billing_cycle,
+                            'start_date': start_date,
+                            'last_payment': start_date,
+                            'category': category or "Other",
+                            'bank': bank,
+                            'status': 'Active',
+                            'transaction_count': 1,
+                            'confidence_score': 100
+                        }
+                        
+                        if subscription_tracker.add_subscription(subscription_data):
+                            st.success(f"✅ Added {service_name} subscription!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to add subscription")
+                    else:
+                        st.error("Please fill in service name and amount")
             
-1. **Authentication**: Login with your Gmail credentials in the sidebar
-2. **Settings**: Adjust the number of emails to process (5-100)
-3. **Date Filter**: Optionally enable date filtering to analyze specific periods
-4. **Analysis**: Click "Analyze Bank Transactions" to start processing
+            # Display subscriptions
+            if st.session_state.subscriptions:
+                metrics = subscription_tracker.calculate_subscription_metrics(st.session_state.subscriptions)
+                
+                # Summary cards
+                st.subheader("📊 Subscription Overview")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    create_metric_card("Monthly Cost", f"₹{metrics['total_monthly']:,.2f}")
+                with col2:
+                    create_metric_card("Yearly Cost", f"₹{metrics['total_yearly']:,.2f}")
+                with col3:
+                    create_metric_card("Active Subscriptions", metrics['active_count'])
+                with col4:
+                    create_metric_card("Trial Subscriptions", metrics['trial_count'])
+                
+                if metrics['trial_count'] > 0:
+                    trial_subs = [sub for sub in st.session_state.subscriptions if sub.get('is_trial', False)]
+                    total_trial_cost = sum(sub['amount'] for sub in trial_subs if sub['billing_cycle'] == 'Monthly') * 12
+                    total_trial_cost += sum(sub['amount'] for sub in trial_subs if sub['billing_cycle'] == 'Quarterly') * 4
+                    total_trial_cost += sum(sub['amount'] for sub in trial_subs if sub['billing_cycle'] == 'Yearly')
+                    
+                    st.warning(f"⚠️ You have {metrics['trial_count']} trial subscriptions that could cost ₹{total_trial_cost:,.2f}/year if converted to paid plans")
+                
+                # COLLAPSIBLE SUBSCRIPTION VISUALIZATIONS
+                st.subheader("📈 Subscription Analysis Charts")
+                
+                fig_monthly, fig_category, fig_yearly = create_subscription_visualizations(
+                    st.session_state.subscriptions, metrics
+                )
+                
+                if fig_monthly:
+                    # Service & Category Breakdown (Collapsible)
+                    with st.expander("📊 Service & Category Breakdown", expanded=False):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.plotly_chart(fig_monthly, use_container_width=True)
+                        with col2:
+                            st.plotly_chart(fig_category, use_container_width=True)
+                    
+                    # Yearly Projection (Collapsible)
+                    with st.expander("📅 Yearly Spending Projection", expanded=False):
+                        st.plotly_chart(fig_yearly, use_container_width=True)
+                
+                # Subscription list
+                st.subheader("📋 Your Subscriptions")
+                
+                # Filter options
+                filter_col1, filter_col2, filter_col3 = st.columns(3)
+                with filter_col1:
+                    status_filter = st.selectbox("Filter by Status", ["All", "Active", "Trial", "Inactive"])
+                with filter_col2:
+                    category_filter = st.selectbox(
+                        "Filter by Category", 
+                        ["All"] + list(set(sub.get('category', 'Other') for sub in st.session_state.subscriptions))
+                    )
+                with filter_col3:
+                    sort_option = st.selectbox("Sort by", ["Amount (High to Low)", "Amount (Low to High)", "Name", "Next Payment"])
+                
+                # Apply filters and sorting
+                filtered_subs = st.session_state.subscriptions.copy()
+                
+                if status_filter != "All":
+                    filtered_subs = [sub for sub in filtered_subs if sub.get('status', 'Active') == status_filter]
+                
+                if category_filter != "All":
+                    filtered_subs = [sub for sub in filtered_subs if sub.get('category', 'Other') == category_filter]
+                
+                # Sort subscriptions
+                if sort_option == "Amount (High to Low)":
+                    filtered_subs.sort(key=lambda x: x['amount'], reverse=True)
+                elif sort_option == "Amount (Low to High)":
+                    filtered_subs.sort(key=lambda x: x['amount'])
+                elif sort_option == "Name":
+                    filtered_subs.sort(key=lambda x: x['service_name'])
+                elif sort_option == "Next Payment":
+                    filtered_subs.sort(key=lambda x: subscription_tracker.get_next_payment_date(x))
+                
+                # Display subscription cards using NEW HTML-free function
+                for subscription in filtered_subs:
+                    display_subscription_card(subscription, subscription_tracker)
+                    
+                    # Management buttons
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        if st.button(f"⚙️ Manage {subscription['service_name']}", key=f"manage_{subscription['id']}"):
+                            st.session_state.editing_subscription = subscription['id']
+                    
+                    with col2:
+                        if st.button(f"🗑️ Delete {subscription['service_name']}", key=f"delete_{subscription['id']}"):
+                            if subscription_tracker.delete_subscription(subscription['id']):
+                                st.success(f"Deleted {subscription['service_name']}")
+                                st.rerun()
+                    
+                    # Edit form (if editing this subscription)
+                    if st.session_state.get('editing_subscription') == subscription['id']:
+                        with st.form(f"edit_form_{subscription['id']}"):
+                            st.subheader(f"Edit {subscription['service_name']}")
+                            
+                            edit_col1, edit_col2 = st.columns(2)
+                            with edit_col1:
+                                new_name = st.text_input("Service Name", value=subscription['service_name'])
+                                new_amount = st.number_input("Amount", value=subscription['amount'], min_value=0.01, step=0.01)
+                                new_cycle = st.selectbox("Billing Cycle", ["Monthly", "Quarterly", "Yearly"], 
+                                                       index=["Monthly", "Quarterly", "Yearly"].index(subscription['billing_cycle']))
+                            
+                            with edit_col2:
+                                new_category = st.text_input("Category", value=subscription.get('category', ''))
+                                new_status = st.selectbox("Status", ["Active", "Trial", "Inactive"], 
+                                                        index=["Active", "Trial", "Inactive"].index(subscription.get('status', 'Active')))
+                                new_bank = st.text_input("Bank", value=subscription.get('bank', ''))
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.form_submit_button("💾 Save Changes", type="primary"):
+                                    updated_data = {
+                                        'service_name': new_name,
+                                        'amount': new_amount,
+                                        'billing_cycle': new_cycle,
+                                        'category': new_category,
+                                        'status': new_status,
+                                        'bank': new_bank
+                                    }
+                                    
+                                    if subscription_tracker.update_subscription(subscription['id'], updated_data):
+                                        st.success("Subscription updated!")
+                                        st.session_state.editing_subscription = None
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to update subscription")
+                            
+                            with col2:
+                                if st.form_submit_button("❌ Cancel"):
+                                    st.session_state.editing_subscription = None
+                                    st.rerun()
+                
+                # Export subscriptions
+                st.subheader("📤 Export Subscription Data")
+                subscription_df = pd.DataFrame(st.session_state.subscriptions)
+                csv_data = subscription_df.to_csv(index=False)
+                
+                st.download_button(
+                    label="📁 Download Subscriptions CSV",
+                    data=csv_data,
+                    file_name=f"subscriptions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+                
+            else:
+                st.info("No subscriptions tracked yet. Add subscriptions manually or analyze transactions to detect them automatically.")
+        
+        else:
+            st.info("Please authenticate with Gmail to track your subscriptions.")
 
-### Supported Banks:
-- SBI, Chase, Bank of America, Citi Bank, Wells Fargo
-- Capital One, American Express, Discover, Synchrony Bank
-- US Bank, PNC Bank, Truist, Ally Bank, SoFi
-- PayPal, Venmo, TD Bank, Charles Schwab
+    with tab3:  # Combined Insights Tab
+        st.header("📊 Combined Financial Insights")
+        
+        if st.session_state.authenticated:
+            if st.session_state.get('transaction_data') and st.session_state.subscriptions:
+                
+                # Combined metrics
+                st.subheader("💰 Financial Overview")
+                
+                df = pd.DataFrame(st.session_state.transaction_data)
+                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
+                df['amount_numeric'] = pd.to_numeric(df['amount'], errors='coerce')
+                df = df.dropna(subset=['amount_numeric', 'date_parsed'])
+                
+                df_filtered = apply_date_filter(df)
+                subscription_metrics = subscription_tracker.calculate_subscription_metrics(st.session_state.subscriptions)
+                
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
+                    total_transactions = df_filtered['amount_numeric'].sum()
+                    create_metric_card("Total Transactions", f"₹{total_transactions:,.2f}")
+                
+                with col2:
+                    create_metric_card("Monthly Subscriptions", f"₹{subscription_metrics['total_monthly']:,.2f}")
+                
+                with col3:
+                    subscription_percentage = (subscription_metrics['total_monthly'] / total_transactions * 100) if total_transactions > 0 else 0
+                    create_metric_card("Subscription %", f"{subscription_percentage:.1f}%")
+                
+                with col4:
+                    non_subscription_spending = total_transactions - subscription_metrics['total_monthly']
+                    create_metric_card("Other Spending", f"₹{non_subscription_spending:,.2f}")
+                
+                with col5:
+                    trial_count = subscription_metrics['trial_count']
+                    create_metric_card("Active Trials", trial_count)
+                
+                # COLLAPSIBLE SPENDING BREAKDOWN
+                with st.expander("📈 Detailed Spending Breakdown", expanded=False):
+                    st.subheader("📈 Spending Breakdown")
+                    
+                    # Create comparison chart
+                    categories_df = df_filtered.groupby('category')['amount_numeric'].sum().reset_index()
+                    categories_df['type'] = 'One-time'
+                    
+                    # Add subscription categories
+                    subscription_categories = {}
+                    for sub in st.session_state.subscriptions:
+                        if sub.get('status', 'Active') in ['Active', 'Trial']:
+                            category = sub.get('category', 'Other')
+                            monthly_amount = sub['amount'] if sub['billing_cycle'] == 'Monthly' else (
+                                sub['amount'] / 3 if sub['billing_cycle'] == 'Quarterly' else sub['amount'] / 12
+                            )
+                            subscription_categories[category] = subscription_categories.get(category, 0) + monthly_amount
+                    
+                    sub_df = pd.DataFrame([
+                        {'category': cat, 'amount_numeric': amount, 'type': 'Recurring'}
+                        for cat, amount in subscription_categories.items()
+                    ])
+                    
+                    if not sub_df.empty:
+                        combined_df = pd.concat([categories_df, sub_df], ignore_index=True)
+                    else:
+                        combined_df = categories_df
+                    
+                    fig_combined = px.bar(
+                        combined_df,
+                        x='category',
+                        y='amount_numeric',
+                        color='type',
+                        title='Spending by Category: One-time vs Recurring',
+                        barmode='group'
+                    )
+                    fig_combined.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig_combined, use_container_width=True)
+                
+                # Recommendations
+                st.subheader("💡 AI Recommendations")
+                
+                recommendations = []
+                
+                # Trial analysis
+                trial_subs = [sub for sub in st.session_state.subscriptions if sub.get('is_trial', False)]
+                if trial_subs:
+                    trial_cost = sum(
+                        sub['amount'] * (12 if sub['billing_cycle'] == 'Monthly' else 
+                                       4 if sub['billing_cycle'] == 'Quarterly' else 1)
+                        for sub in trial_subs
+                    )
+                    recommendations.append({
+                        'type': 'warning',
+                        'title': 'Trial Subscriptions Alert',
+                        'description': f"You have {len(trial_subs)} trial subscriptions that could cost ₹{trial_cost:,.2f}/year if not cancelled.",
+                        'action': 'Review and cancel unused trials before they convert to paid subscriptions.'
+                    })
+                
+                # High subscription spending
+                if subscription_percentage > 30:
+                    recommendations.append({
+                        'type': 'info',
+                        'title': 'High Subscription Spending',
+                        'description': f'Subscriptions account for {subscription_percentage:.1f}% of your spending.',
+                        'action': 'Review your subscriptions and cancel unused ones to reduce recurring costs.'
+                    })
+                
+                # Duplicate category analysis
+                category_counts = {}
+                for sub in st.session_state.subscriptions:
+                    if sub.get('status', 'Active') in ['Active', 'Trial']:
+                        category = sub.get('category', 'Other')
+                        category_counts[category] = category_counts.get(category, 0) + 1
+                
+                duplicate_categories = [cat for cat, count in category_counts.items() if count > 2]
+                if duplicate_categories:
+                    recommendations.append({
+                        'type': 'warning',
+                        'title': 'Multiple Services in Same Category',
+                        'description': f'You have multiple subscriptions in: {", ".join(duplicate_categories)}',
+                        'action': 'Consider consolidating to reduce costs and simplify management.'
+                    })
+                
+                # Spending pattern analysis
+                if len(df_filtered) > 0:
+                    avg_daily_spending = df_filtered['amount_numeric'].sum() / max(1, len(df_filtered.groupby(df_filtered['date_parsed'].dt.date)))
+                    monthly_avg = avg_daily_spending * 30
+                    
+                    if monthly_avg > subscription_metrics['total_monthly'] * 3:
+                        recommendations.append({
+                            'type': 'info',
+                            'title': 'Variable Spending High',
+                            'description': f'Your variable spending (₹{monthly_avg:,.2f}/month) is much higher than subscriptions.',
+                            'action': 'Track your variable expenses more closely to identify saving opportunities.'
+                        })
+                
+                # Display recommendations
+                for rec in recommendations:
+                    if rec['type'] == 'warning':
+                        st.warning(f"⚠️ **{rec['title']}**: {rec['description']} *{rec['action']}*")
+                    else:
+                        st.info(f"💡 **{rec['title']}**: {rec['description']} *{rec['action']}*")
+                
+                # Future projections
+                st.subheader("📅 Financial Projections")
+                
+                months_remaining = (date(datetime.now().year, 12, 31) - datetime.now().date()).days / 30.44
+                projected_subscription_cost = subscription_metrics['total_monthly'] * months_remaining
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Remaining Year Subscription Cost", f"₹{projected_subscription_cost:,.2f}")
+                with col2:
+                    potential_savings = sum(sub['amount'] * (12 if sub['billing_cycle'] == 'Monthly' else 4 if sub['billing_cycle'] == 'Quarterly' else 1) 
+                                          for sub in trial_subs)
+                    st.metric("Potential Annual Savings", f"₹{potential_savings:,.2f}")
+                
+            elif st.session_state.get('transaction_data'):
+                st.info("Add some subscriptions to see combined insights with your transaction data.")
+            elif st.session_state.subscriptions:
+                st.info("Analyze your transactions to see combined insights with your subscription data.")
+            else:
+                st.info("Analyze transactions and track subscriptions to see combined financial insights.")
+        else:
+            st.info("Please authenticate with Gmail to view combined insights.")
 
-### Features:
-- 🤖 **AI-Powered Categorization**: Automatically categorizes transactions using advanced AI
-- 📊 **Visual Analytics**: Interactive charts and graphs
-- 🔍 **Smart Filtering**: Filter by bank, category, amount, and date range
-- 📈 **Trend Analysis**: Monthly spending patterns and timeline views
-- 💾 **Export Options**: Download data as CSV for further analysis
-- ➕ **Manual Transactions**: Add transactions manually or import from CSV
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; color: #6c757d; padding: 20px;">
+        <p><strong>Expense Tracker v2.0</strong> - Enhanced with Trial, Subscription Detection & Advanced Analytics</p>
+        <p>🔐 Your data is processed securely and never stored permanently | © 2025 All Right Reserved by <a href="https://tanishmittal.com/">Tanish Mittal</a> </p>
+        <p>Please Provide me your feedback <a href="https://7dpvf63l8gg.typeform.com/to/PGox5Sxf/">Form</a> </p>
 
-### Requirements:
-- Gmail account with bank transaction alert emails
-- App Password if 2FA is enabled on Gmail
-""")
-            
-            st.info("💡 Make sure you have transaction alert emails from supported banks in your Gmail inbox")
+    </div>
+    """, unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()
