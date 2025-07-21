@@ -1,8 +1,10 @@
 streamlit
+imaplib2
 pandas
 plotly
 python-dotenv
-python-dateutil
 streamlit-tags
 numpy
+beautifulsoup4
+pytz
 requests
