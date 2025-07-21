@@ -1,172 +1,140 @@
-#  Transaction Analyzer
+# 🏦 AI Expense & Subscription Tracker
 
-Transform your  transaction emails into powerful financial insights with AI-powered categorization and beautiful analytics.
+Transform your bank transaction emails into powerful financial insights with AI-powered categorization, subscription tracking, and beautiful analytics.
 
 ## 🚀 Overview
 
- Transaction Analyzer is a comprehensive financial analytics tool that automatically processes your card transaction emails from Gmail, categorizes them using advanced AI algorithms, and presents beautiful visual insights to help you understand your spending patterns.
+AI Expense & Subscription Tracker is a comprehensive financial analytics tool that automatically processes your bank transaction emails from Gmail, categorizes them using advanced AI algorithms, detects subscription services including trials, and presents beautiful visual insights to help you understand your spending patterns and manage recurring subscriptions.
 
 ## ✨ Features
 
-### 🤖 AI-Powered Categorization
-- Automatically categorizes transactions using advanced AI algorithms
-- Precise financial insights with 100% AI-powered analysis
-- Supports 19 main categories across 385+ services
+### 🤖 AI-Powered Transaction Analysis
+- Automatically categorizes transactions using GPT-4 AI algorithms
+- Detects subscription services and trial periods automatically
+- Extracts merchant names, amounts, and transaction details from email content
+- Supports 30+ transaction categories with intelligent color coding
 
-### 📊 Visual Analytics
-- Interactive charts and graphs for clear spending visualization
-- Monthly spending patterns and timeline views
-- Beautiful, actionable financial dashboards
+### 🔄 Smart Subscription Tracking
+- **Auto-Detection**: Automatically identifies recurring subscriptions from transaction patterns
+- **Trial Detection**: Identifies trial subscriptions (low amounts, keywords like "trial", "free")
+- **Billing Cycle Recognition**: Detects Monthly, Quarterly, and Yearly billing cycles
+- **Service Categorization**: Groups subscriptions by type (Streaming, SaaS, Cloud, etc.)
 
-### 🔍 Smart Filtering
-- Filter transactions by category, amount, and date range
-- Drill down into specific spending areas
-- Advanced search and filtering capabilities
+### 📊 Visual Analytics Dashboard
+- Interactive charts and graphs for spending visualization
+- Monthly spending patterns and timeline analysis
+- Subscription cost breakdowns and projections
+- Heatmaps showing spending patterns by day and time
+- Combined insights showing subscription vs one-time spending
 
-### 📈 Trend Analysis
-- Track your financial journey over time
-- Monthly spending pattern analysis
-- Historical spending comparisons
+### 🔍 Advanced Filtering & Analysis
+- Date range filtering for specific time periods
+- Category and bank-based filtering
+- Amount range sliders for detailed analysis
+- Multi-threaded email processing for faster analysis
 
-### 💾 Export Options
-- Download analyzed data as CSV
-- Export for further analysis or record keeping
-- Maintain data portability
+### 💡 AI-Powered Recommendations
+- Identifies potentially wasteful trial subscriptions
+- Warns about high subscription spending percentages
+- Detects duplicate services in same categories
+- Provides actionable insights for cost optimization
 
-### 🔐 Secure Authentication
-- Gmail OAuth integration
-- Private and secure data handling
-- 24/7 availability with enterprise-grade security
+### 📈 Financial Projections
+- Yearly subscription cost projections
+- Remaining year spending forecasts
+- Potential savings calculations from unused trials
+- Spending pattern analysis and trends
 
-## 🛠️ How to Use
+### 📤 Export & Data Portability
+- CSV export for transactions and subscriptions
+- JSON export for complete analysis data
+- Filtered data export capabilities
+- No vendor lock-in - your data remains yours
 
-### Step 1: Authentication
-- Login with your Gmail credentials in the sidebar
-- Secure OAuth integration ensures data privacy
+### 🔐 Enterprise-Grade Security
+- Gmail IMAP authentication with app password support
+- **Zero permanent data storage** - all data cleared on logout
+- Session-based processing with automatic cleanup
+- No financial data stored locally or on servers
 
-### Step 2: Settings Configuration
-- Adjust the number of emails to process (5-100 emails)
-- Customize analysis scope based on your needs
+## 🏦 Supported Banks
 
-### Step 3: Date Filtering (Optional)
-- Enable date filtering to analyze specific time periods
-- Focus on particular months or quarters
+### 🇮🇳 Indian Banks
+- **SBI** (State Bank of India)
+- **HDFC Bank**
+- **ICICI Bank** 
+- **Axis Bank**
+- **Kotak Mahindra Bank**
+- **IDFC FIRST Bank**
+- **Yes Bank**
+- **IndusInd Bank**
 
-### Step 4: Analysis
-- Click "Analyze  Transactions" to start processing
-- AI automatically categorizes and analyzes your transactions
+### 🌍 International Banks
+- **Chase Bank**
+- **Bank of America**
+- **Citibank**
+- **Wells Fargo**
+- **Capital One**
+- **American Express**
+- **Discover**
+- **Synchrony Bank**
+- **US Bank**
+- **PNC Bank**
+- **Truist**
+- **Ally Bank**
+- **SoFi**
+- **PayPal**
+- **Venmo**
+- **TD Bank**
+- **Charles Schwab**
 
-## 📋 Requirements
+## 🏷️ Supported Transaction Categories
 
-- **Gmail Account**: Must contain  transaction alert emails
-- **App Password**: Required if 2-Factor Authentication (2FA) is enabled on Gmail
-- ** Card**: Active  credit/debit card with email notifications enabled
-- **Replicate API Token**: Required for AI-powered transaction categorization
+### 💳 Digital Payments & Transfers
+- UPI, NEFT, RTGS, IMPS transfers
+- PayPal, PhonePe, Google Pay, Paytm
+- ATM withdrawals and cash transactions
 
-## 🏷️ Supported Categories
+### 🛒 E-commerce & Shopping
+- Amazon, Flipkart, Myntra, Snapdeal
+- Online marketplaces and retail stores
+- Grocery stores and supermarkets
 
-### Banking & Finance
-- PayPal, Apple Pay, Google Pay
-- Digital wallets and payment platforms
+### 🎬 Entertainment & Streaming
+- Netflix, Disney+, Prime Video, Hotstar
+- YouTube Premium, Spotify, Apple Music
+- Entertainment and media subscriptions
 
-### E-commerce
-- Amazon, Flipkart, Myntra
-- Online shopping platforms
+### ☁️ SaaS & Cloud Services
+- Google Cloud, AWS, Microsoft Azure
+- Office 365, Adobe Creative Suite
+- Dropbox, Zoom, Slack, Notion
 
-### Streaming Services
-- Netflix, Disney+, Prime Video
-- Entertainment subscriptions
-
-### Music Platforms
-- Spotify, Apple Music, YouTube Music
-- Audio streaming services
-
-### Cloud Services
-- AWS, Google Cloud, Azure
-- Cloud computing platforms
-
-### Software & Tools
-- Microsoft, Adobe, Autodesk
-- Productivity and creative software
-
-### Food & Dining
+### 🍕 Food & Dining
 - Zomato, Swiggy, Uber Eats
-- Food delivery and dining
+- Restaurants, cafes, and food delivery
+- Dining and beverage expenses
 
-### Transportation
-- Uber, Ola, Rapido
-- Ride-sharing and transport services
+### 🚗 Transportation
+- Uber, Ola, ride-sharing services
+- Fuel and petrol stations
+- Transportation and mobility
 
-## 🚀 Getting Started
+### 📱 Telecom & Utilities
+- Airtel, Jio, Vi mobile bills
+- Internet and broadband services
+- Electricity and utility payments
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/tansihmittal/-track.git
-   cd -track
-   ```
+### 💊 Healthcare & Pharmacy
+- Apollo Pharmacy, Netmeds
+- Medical and healthcare expenses
+- Pharmacy and medicine purchases
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 🛠️ Installation & Setup
 
-3. **Set up API configuration**
-   Create a `.streamlit/secrets.toml` file:
-   ```toml
-   REPLICATE_API_TOKEN = ""
-   ```
-   Add your Replicate API token to enable AI-powered categorization.
+### Prerequisites
+- Python 3.8 or higher
+- Gmail account with transaction alert emails
+- Replicate API token for AI analysis
 
-4. **Run the application**
-   ```bash
-   python -m streamlit run main.py
-   ```
-
-4. **Open in browser**
-   - Streamlit will automatically open your browser
-   - Or navigate to the URL shown in terminal (typically `http://localhost:8501`)
-
-## 📞 Support
-
-- **Feedback**: Share your experience to help us improve
-- **Issues**: Report bugs or request features via GitHub Issues
-- **Community**: Join our community discussions
-
-## 📊 Statistics
-
-- **19** Main Categories
-- **385+** Total Services Supported
-- **100%** AI-Powered Analysis
-- **24/7** Availability
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🔒 Privacy & Security
-
-- **Zero Data Storage**: We do not store any of your data, emails, or transaction information
-- **Local Processing**: All analysis happens locally on your machine
-- **No Data Retention**: Your information is never saved, cached, or transmitted to external servers
-- **Gmail OAuth**: Secure authentication without storing credentials
-- **Complete Privacy**: Your financial data remains 100% private and under your control
-
-## 🌟 Share & Feedback
-
-Love this tool? Share it with friends and colleagues who use  cards!
-
-- **Share**: Help others discover better financial insights
-- **Feedback**: Your input helps us improve continuously
-- **Rate**: Star this repository if you find it useful
-
-## 🚀 Try It Online
-
-**Live Demo**: https://tanishmittal.com/card-analyze-mvp/
-
-Experience the full power of  Transaction Analyzer without any setup!
-
----
-
-**Made with ❤️ by [Tanish Mittal](https://tanishmittal.com/)**
-
-Transform your spending habits with AI-powered insights today!
+### Step 1: Clone Repository
