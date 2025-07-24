@@ -254,16 +254,114 @@ st.markdown("""
         border-radius: 4px;
         color: #856404;
     }
+    .stats-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 20px 0;
+        color: white;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+    .stats-card {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+        backdrop-filter: blur(10px);
+    }
+    .stats-number {
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .stats-label {
+        font-size: 14px;
+        opacity: 0.9;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'user_email' not in st.session_state:
-    st.session_state.user_email = None
-if 'subscriptions' not in st.session_state:
-    st.session_state.subscriptions = []
+class UserStatisticsManager:
+    """Manages user statistics and analytics"""
+    
+    def __init__(self):
+        self.stats_file = 'user_statistics.json'
+        self.stats = self._load_statistics()
+    
+    def _load_statistics(self) -> Dict:
+        """Load statistics from file"""
+        try:
+            if os.path.exists(self.stats_file):
+                with open(self.stats_file, 'r') as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        
+        return {
+            'total_users': 0,
+            'total_amount_detected': 0.0,
+            'total_subscriptions_detected': 0,
+            'last_updated': None
+        }
+    
+    def _save_statistics(self):
+        """Save statistics to file"""
+        try:
+            self.stats['last_updated'] = datetime.now().isoformat()
+            with open(self.stats_file, 'w') as f:
+                json.dump(self.stats, f, indent=2)
+        except Exception as e:
+            print(f"Error saving statistics: {e}")
+    
+    def record_user_session(self, user_email: str):
+        """Record a new user session"""
+        users_file = 'tracked_users.json'
+        tracked_users = set()
+        
+        try:
+            if os.path.exists(users_file):
+                with open(users_file, 'r') as f:
+                    tracked_users = set(json.load(f))
+        except Exception:
+            pass
+        
+        if user_email not in tracked_users:
+            tracked_users.add(user_email)
+            self.stats['total_users'] = len(tracked_users)
+            
+            try:
+                with open(users_file, 'w') as f:
+                    json.dump(list(tracked_users), f)
+            except Exception:
+                pass
+            
+            self._save_statistics()
+    
+    def record_transaction_analysis(self, total_amount: float, subscription_count: int):
+        """Record transaction analysis results"""
+        self.stats['total_amount_detected'] += total_amount
+        self.stats['total_subscriptions_detected'] += subscription_count
+        self._save_statistics()
+    
+    def get_statistics(self) -> Dict:
+        """Get current statistics"""
+        return self.stats.copy()
+    
+    def format_amount(self, amount: float) -> str:
+        """Format amount for display"""
+        if amount >= 10000000:  # 1 crore
+            return f"₹{amount/10000000:.1f}Cr"
+        elif amount >= 100000:  # 1 lakh
+            return f"₹{amount/100000:.1f}L"
+        elif amount >= 1000:  # 1 thousand
+            return f"₹{amount/1000:.1f}K"
+        else:
+            return f"₹{amount:,.0f}"
 
 class ConfigManager:
     """Manages configuration and credentials"""
@@ -387,7 +485,7 @@ class AITransactionCategorizer:
     def analyze_transaction_complete(self, subject: str, body: str, bank_name: str) -> Dict:
         """Complete AI analysis of transaction"""
         try:
-            url = "https://api.replicate.com/v1/models/openai/gpt-4o-mini/predictions"
+            url = "https://api.replicate.com/v1/models/openai/gpt-4.1-nano/predictions"
             
             headers = {
                 "Authorization": f"Bearer {self.replicate_token}",
@@ -1365,7 +1463,7 @@ class BankEmailExtractor:
             if total_emails == 0:
                 return results
             
-            with ThreadPoolExecutor(max_workers=10, thread_name_prefix="EmailProcessor") as executor:
+            with ThreadPoolExecutor(max_workers=15, thread_name_prefix="EmailProcessor") as executor:
                 future_to_message_id = {
                     executor.submit(self.fetch_and_analyze_email, message_id): message_id 
                     for message_id in message_ids
@@ -1626,7 +1724,7 @@ def apply_date_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def create_visualizations(df, categorizer):
-    """Create various visualizations for the transaction data with collapsible containers"""
+    """Create various visualizations for the transaction data with collapsible containers - FIXED VERSION"""
     
     df_filtered = apply_date_filter(df)
     
@@ -1634,6 +1732,58 @@ def create_visualizations(df, categorizer):
         st.warning("No transactions found in the selected date range.")
         return None, None, None, None, None, None, None
     
+    # CRITICAL FIX: Create a copy and ensure date_parsed is datetime
+    df_filtered = df_filtered.copy()
+    
+    # Multiple-layer datetime conversion with error handling
+    if 'date_parsed' in df_filtered.columns:
+        # Check if date_parsed is already datetime
+        if not pd.api.types.is_datetime64_any_dtype(df_filtered['date_parsed']):
+            # Try multiple conversion methods
+            try:
+                # Ensure date_parsed is real datetime
+                    df_filtered['date_parsed'] = pd.to_datetime(
+                        df_filtered['date_parsed'],            # the source column
+                        errors='coerce',                       # turn bad rows into NaT
+                        utc=False                              # keep local time; change if needed
+                    )
+
+                    # Remove rows where the conversion failed
+                    df_filtered = df_filtered.dropna(subset=['date_parsed'])
+
+                    # Final safety check
+                    if not pd.api.types.is_datetime64_any_dtype(df_filtered['date_parsed']):
+                        st.error("Date parsing failed – cannot continue.")
+                        st.stop()               # or return / handle gracefully
+
+            except:
+                try:
+                    # Fallback conversion
+                    df_filtered['date_parsed'] = df_filtered['date_parsed'].apply(
+                        lambda x: pd.to_datetime(x, errors='coerce') if pd.notna(x) else pd.NaT
+                    )
+                except:
+                    st.error("Critical error: Unable to parse dates for visualization")
+                    return None, None, None, None, None, None, None
+        
+        # Remove any rows where date conversion failed
+        df_filtered = df_filtered.dropna(subset=['date_parsed'])
+        
+        # Final validation - ensure we have datetime data
+        if not pd.api.types.is_datetime64_any_dtype(df_filtered['date_parsed']):
+            st.error("Date parsing failed - cannot create visualizations")
+            return None, None, None, None, None, None, None
+            
+    else:
+        st.error("Date column 'date_parsed' not found in data")
+        return None, None, None, None, None, None, None
+    
+    # Ensure we have data after filtering
+    if df_filtered.empty:
+        st.warning("No valid data after date processing.")
+        return None, None, None, None, None, None, None
+    
+    # Color mapping
     color_map = {}
     if hasattr(categorizer, 'category_colors'):
         color_map = categorizer.category_colors
@@ -1642,154 +1792,146 @@ def create_visualizations(df, categorizer):
         colors = px.colors.qualitative.Set3
         color_map = {cat: colors[i % len(colors)] for i, cat in enumerate(unique_categories)}
     
-    category_amounts = df_filtered.groupby('category')['amount_numeric'].sum().reset_index()
-    fig_pie = px.pie(
-        category_amounts,
-        names='category', 
-        values='amount_numeric',
-        title='Transaction Distribution by Category (by Amount)',
-        color='category',
-        color_discrete_map=color_map
-    )
-    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+    # 1. Pie Chart - Category Distribution
+    try:
+        category_amounts = df_filtered.groupby('category')['amount_numeric'].sum().reset_index()
+        fig_pie = px.pie(
+            category_amounts,
+            names='category', 
+            values='amount_numeric',
+            title='Transaction Distribution by Category (by Amount)',
+            color='category',
+            color_discrete_map=color_map
+        )
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+    except Exception as e:
+        st.warning(f"Could not create pie chart: {e}")
+        fig_pie = None
     
-    fig_bar = px.bar(
-        category_amounts, 
-        x='category', 
-        y='amount_numeric',
-        title='Total Amount by Category',
-        color='category',
-        color_discrete_map=color_map
-    )
-    fig_bar.update_layout(xaxis_tickangle=-45)
+    # 2. Bar Chart - Total by Category
+    try:
+        fig_bar = px.bar(
+            category_amounts, 
+            x='category', 
+            y='amount_numeric',
+            title='Total Amount by Category',
+            color='category',
+            color_discrete_map=color_map
+        )
+        fig_bar.update_layout(xaxis_tickangle=-45)
+    except Exception as e:
+        st.warning(f"Could not create bar chart: {e}")
+        fig_bar = None
     
-    df_sorted = df_filtered.sort_values('date_parsed')
-    fig_timeline = px.line(
-        df_sorted, 
-        x='date_parsed', 
-        y='amount_numeric',
-        color='category',
-        title='Transaction Timeline',
-        markers=True,
-        color_discrete_map=color_map
-    )
+    # 3. Timeline Chart
+    try:
+        df_sorted = df_filtered.sort_values('date_parsed')
+        fig_timeline = px.line(
+            df_sorted, 
+            x='date_parsed', 
+            y='amount_numeric',
+            color='category',
+            title='Transaction Timeline',
+            markers=True,
+            color_discrete_map=color_map
+        )
+    except Exception as e:
+        st.warning(f"Could not create timeline chart: {e}")
+        fig_timeline = None
     
-    df_sorted['month'] = df_sorted['date_parsed'].dt.to_period('M')
-    monthly_spending = df_sorted.groupby(['month', 'category'])['amount_numeric'].sum().reset_index()
-    monthly_spending['month'] = monthly_spending['month'].astype(str)
+    # 4. Monthly Spending Chart - WITH ENHANCED ERROR HANDLING
+    try:
+        df_sorted = df_filtered.sort_values('date_parsed').copy()
+        
+        # CRITICAL FIX: Additional validation before using .dt accessor
+        if pd.api.types.is_datetime64_any_dtype(df_sorted['date_parsed']):
+            # Safe to use .dt accessor now
+            df_sorted['month'] = df_sorted['date_parsed'].dt.to_period('M')
+            monthly_spending = df_sorted.groupby(['month', 'category'])['amount_numeric'].sum().reset_index()
+            monthly_spending['month'] = monthly_spending['month'].astype(str)
+            
+            fig_monthly = px.bar(
+                monthly_spending,
+                x='month',
+                y='amount_numeric',
+                color='category',
+                title='Monthly Spending by Category',
+                color_discrete_map=color_map
+            )
+        else:
+            st.warning("Cannot create monthly chart - invalid date format")
+            fig_monthly = None
+    except Exception as e:
+        st.warning(f"Could not create monthly chart: {e}")
+        fig_monthly = None
     
-    fig_monthly = px.bar(
-        monthly_spending,
-        x='month',
-        y='amount_numeric',
-        color='category',
-        title='Monthly Spending by Category',
-        color_discrete_map=color_map
-    )
+    # 5. Bank Distribution
+    try:
+        bank_spending = df_filtered.groupby('bank')['amount_numeric'].sum().reset_index()
+        fig_bank = px.pie(
+            bank_spending,
+            names='bank',
+            values='amount_numeric',
+            title='Spending Distribution by Bank'
+        )
+    except Exception as e:
+        st.warning(f"Could not create bank chart: {e}")
+        fig_bank = None
     
-    bank_spending = df_filtered.groupby('bank')['amount_numeric'].sum().reset_index()
-    fig_bank = px.pie(
-        bank_spending,
-        names='bank',
-        values='amount_numeric',
-        title='Spending Distribution by Bank'
-    )
+    # 6. Heatmap - WITH ENHANCED ERROR HANDLING
+    try:
+        df_heat = df_filtered.copy()
+        
+        # CRITICAL FIX: Validate datetime before using .dt accessor
+        if pd.api.types.is_datetime64_any_dtype(df_heat['date_parsed']):
+            df_heat['weekday'] = df_heat['date_parsed'].dt.day_name()
+            df_heat['week'] = df_heat['date_parsed'].dt.isocalendar().week
+            
+            heatmap_data = df_heat.groupby(['weekday', 'week'])['amount_numeric'].sum().reset_index()
+            
+            weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            heatmap_data['weekday'] = pd.Categorical(heatmap_data['weekday'], categories=weekday_order, ordered=True)
+            heatmap_data = heatmap_data.sort_values('weekday')
+            
+            fig_heatmap = px.density_heatmap(
+                heatmap_data,
+                x='week',
+                y='weekday',
+                z='amount_numeric',
+                title='Weekly Spending Heatmap',
+                color_continuous_scale='Blues'
+            )
+        else:
+            st.warning("Cannot create heatmap - invalid date format")
+            fig_heatmap = None
+    except Exception as e:
+        st.warning(f"Could not create heatmap: {e}")
+        fig_heatmap = None
     
-    df_filtered['weekday'] = df_filtered['date_parsed'].dt.day_name()
-    df_filtered['week'] = df_filtered['date_parsed'].dt.isocalendar().week
-    
-    heatmap_data = df_filtered.groupby(['weekday', 'week'])['amount_numeric'].sum().reset_index()
-    
-    weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    heatmap_data['weekday'] = pd.Categorical(heatmap_data['weekday'], categories=weekday_order, ordered=True)
-    heatmap_data = heatmap_data.sort_values('weekday')
-    
-    fig_heatmap = px.density_heatmap(
-        heatmap_data,
-        x='week',
-        y='weekday',
-        z='amount_numeric',
-        title='Weekly Spending Heatmap',
-        color_continuous_scale='Blues'
-    )
-    
-    df_filtered['hour'] = df_filtered['date_parsed'].dt.hour
-    hourly_spending = df_filtered.groupby('hour')['amount_numeric'].sum().reset_index()
-    
-    fig_hourly = px.bar(
-        hourly_spending,
-        x='hour',
-        y='amount_numeric',
-        title='Hourly Spending Pattern',
-        color_discrete_sequence=['#00CEC9']
-    )
+    # 7. Hourly Pattern - WITH ENHANCED ERROR HANDLING
+    try:
+        df_hourly = df_filtered.copy()
+        
+        # CRITICAL FIX: Validate datetime before using .dt accessor
+        if pd.api.types.is_datetime64_any_dtype(df_hourly['date_parsed']):
+            df_hourly['hour'] = df_hourly['date_parsed'].dt.hour
+            hourly_spending = df_hourly.groupby('hour')['amount_numeric'].sum().reset_index()
+            
+            fig_hourly = px.bar(
+                hourly_spending,
+                x='hour',
+                y='amount_numeric',
+                title='Hourly Spending Pattern',
+                color_discrete_sequence=['#00CEC9']
+            )
+        else:
+            st.warning("Cannot create hourly chart - invalid date format")
+            fig_hourly = None
+    except Exception as e:
+        st.warning(f"Could not create hourly chart: {e}")
+        fig_hourly = None
     
     return fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly
-
-def create_subscription_visualizations(subscriptions: List[Dict], metrics: Dict):
-    """Create visualizations for subscription data with collapsible containers"""
-    if not subscriptions:
-        return None, None, None
-    
-    monthly_data = pd.DataFrame(list(metrics['monthly_breakdown'].items()), 
-                               columns=['Service', 'Monthly Amount'])
-    
-    color_map = {}
-    for sub in subscriptions:
-        if sub.get('status', 'Active') in ['Active', 'Trial']:
-            color_map[sub['service_name']] = sub.get('brand_color', '#007bff')
-    
-    fig_monthly = px.pie(
-        monthly_data,
-        names='Service',
-        values='Monthly Amount',
-        title='Monthly Subscription Spending by Service',
-        color='Service',
-        color_discrete_map=color_map
-    )
-    
-    category_data = pd.DataFrame(list(metrics['category_breakdown'].items()), 
-                                columns=['Category', 'Monthly Amount'])
-    
-    category_colors = {}
-    for category in metrics['category_breakdown'].keys():
-        cat_subs = [sub for sub in subscriptions if sub.get('category') == category and sub.get('status', 'Active') in ['Active', 'Trial']]
-        if cat_subs:
-            category_colors[category] = cat_subs[0].get('brand_color', '#007bff')
-        else:
-            category_colors[category] = '#007bff'
-    
-    fig_category = px.bar(
-        category_data,
-        x='Category',
-        y='Monthly Amount',
-        title='Monthly Subscription Spending by Category',
-        color='Category',
-        color_discrete_map=category_colors
-    )
-    
-    months = list(range(1, 13))
-    cumulative_spending = [metrics['total_monthly'] * month for month in months]
-    
-    fig_yearly = px.line(
-        x=months,
-        y=cumulative_spending,
-        title='Cumulative Subscription Spending (Yearly Projection)',
-        labels={'x': 'Month', 'y': 'Cumulative Spending (₹)'}
-    )
-    
-    current_month = datetime.now().month
-    current_spending = metrics['total_monthly'] * current_month
-    
-    fig_yearly.add_scatter(
-        x=[current_month],
-        y=[current_spending],
-        mode='markers',
-        marker=dict(size=12, color='red'),
-        name='Current Month'
-    )
-    
-    return fig_monthly, fig_category, fig_yearly
 
 def create_metric_card(title, value, delta=None):
     """Helper function to create a metric card"""
@@ -1842,6 +1984,12 @@ def display_transaction_card(row, categorizer):
 def main():
     """Main Streamlit app"""
     
+    # Initialize statistics manager
+    if 'stats_manager' not in st.session_state:
+        st.session_state.stats_manager = UserStatisticsManager()
+    
+    stats_manager = st.session_state.stats_manager
+    
     st.markdown("""
     <div style="display: flex; align-items: center; margin-bottom: 20px;">
         <h1 style="margin: 0;">🏦 AI Expense & Subscription Tracker</h1>
@@ -1862,7 +2010,7 @@ def main():
     if 'subscriptions' not in st.session_state:
         st.session_state.subscriptions = []
     
-    # Add image here (only shown when not authenticated)
+    # Add image and statistics (only shown when not authenticated)
     if not st.session_state.authenticated:
         st.image(
             "https://tanishmittal.com/wp-content/uploads/2025/07/Expense-Tracker-V2.0.png",
@@ -1870,836 +2018,889 @@ def main():
             use_container_width=True
         )
         
+        # Display User Statistics
+        st.markdown("### 📊 Platform Statistics")
+        
+        stats = stats_manager.get_statistics()
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                <div class="metric-title" style="color: rgba(255,255,255,0.9);">Total Users</div>
+                <div class="metric-value">{stats['total_users']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            formatted_amount = stats_manager.format_amount(stats['total_amount_detected'])
+            st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
+                <div class="metric-title" style="color: rgba(255,255,255,0.9);">Total Amount Analyzed</div>
+                <div class="metric-value">{formatted_amount}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white;">
+                <div class="metric-title" style="color: rgba(255,255,255,0.9);">Subscriptions Detected</div>
+                <div class="metric-value">{stats['total_subscriptions_detected']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
         # Supported banks section
         st.markdown("### 🏦 Supported Banks")
-        cols = st.columns(2)
-        with cols[0]:
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
             st.markdown("""
             **🇮🇳 Indian Banks:**
-            - SBI (Debit/ATM alerts)
-            - HDFC Bank (Card)
-            - ICICI Bank (Card/net banking)
-            - Axis Bank (Transaction alerts)
-            - Kotak Mahindra (Credit cards)
+            - State Bank of India (SBI)
+            - HDFC Bank
+            - ICICI Bank
+            - Axis Bank
+            - Kotak Mahindra Bank
             - IDFC FIRST Bank
             - Yes Bank
             - IndusInd Bank
-            
-            **🌍 International Banks:**
-            - Chase
-            - Bank of America
-            - Citi Bank
-            - Wells Fargo
             """)
-
-        with cols[1]:
+        
+        with col2:
             st.markdown("""
-            **🌍 International Banks (cont.):**
+            **🇺🇸 US Banks:**
+            - Chase Bank
+            - Bank of America
+            - Wells Fargo
+            - Citi Bank
             - Capital One
+            - US Bank
+            - PNC Bank
+            - Truist Bank
+            """)
+        
+        with col3:
+            st.markdown("""
+            **💳 Credit Cards:**
             - American Express
             - Discover
             - Synchrony Bank
-            - US Bank
-            - PNC Bank
-            - Truist
-            - Ally Bank
-            - SoFi
-            - PayPal
-            - Venmo
             - TD Bank
             - Charles Schwab
             """)
-    
-    config_manager = ConfigManager()
-    subscription_tracker = SubscriptionTracker(config_manager)
-    
-    tab1, tab2, tab3 = st.tabs(["💳 Transaction Analysis", "🔄 Subscription Tracker", "📊 Combined Insights"])
-    
-    # Sidebar for authentication
-    st.sidebar.header("🔐 Authentication")
-    
-    if not st.session_state.authenticated:
-        st.sidebar.info("Please login with your Gmail credentials to analyze bank transactions")
         
-        with st.sidebar.form("login_form"):
-            email_address = st.text_input(
-                "Gmail Address", 
-                placeholder="your-email@gmail.com",
-                help="Enter your full Gmail address"
-            )
-            password = st.text_input(
-                "Password", 
-                type="password",
-                placeholder="Your Gmail password or App Password",
-                help="Use App Password if 2FA is enabled"
-            )
-            
-            login_button = st.form_submit_button("Login", type="primary")
-            
-            if login_button:
-                if not email_address or not password:
-                    st.error("Please enter both email and password")
-                elif not config_manager.validate_config():
-                    st.error("Configuration incomplete. Please check Replicate API token.")
-                    config_manager.display_config_status()
-                else:
-                    with st.spinner("Authenticating..."):
-                        extractor = BankEmailExtractor(config_manager)
-                        success, user_email = extractor.authenticate_gmail(email_address, password)
-                        if success:
-                            st.session_state.authenticated = True
-                            st.session_state.user_email = user_email
-                            st.session_state.extractor = extractor
-                            st.rerun()
-        
-        with st.sidebar.expander("ℹ️ Gmail Authentication Help"):
-            st.write("""
-            **For Gmail accounts with 2-Factor Authentication:**
-            1. Go to Google Account settings
-            2. Security → 2-Step Verification
-            3. App passwords → Generate new password
-            4. Use the generated password here
-            
-            **For accounts without 2FA:**
-            - Use your regular Gmail password
-            - You may need to enable "Less secure app access"
+        with col4:
+            st.markdown("""
+            **💸 Digital Payments:**
+            - PayPal
+            - Venmo
+            - SoFi
+            - Ally Bank
             """)
-    else:
-        st.sidebar.success(f"✅ Logged in as: {st.session_state.user_email}")
-        
-        if st.sidebar.button("Logout"):
-            st.session_state.authenticated = False
-            st.session_state.user_email = None
-            
-            keys_to_clear = ['transaction_data', 'categorizer', 'results_processed', 
-                           'date_filter_enabled', 'date_filter_start', 'date_filter_end', 'extractor']
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
-            
-            st.rerun()
-
-    if st.session_state.authenticated:
-        st.sidebar.header("⚙️ Configuration")
+    
+    # Configuration management
+    config_manager = ConfigManager()
+    if not config_manager.validate_config():
         config_manager.display_config_status()
+    
+    # Authentication section
+    if not st.session_state.authenticated:
+        st.markdown("---")
+        st.markdown("### 🔐 Login to Access Your Financial Data")
         
-        st.sidebar.subheader("🔧 Analysis Settings")
-        max_emails = st.sidebar.slider("Max Emails to Process", 5, 100, 25, help="Limit the number of emails to analyze")
-
-        st.sidebar.subheader("📅 Date Range Filter")
+        col1, col2 = st.columns([1, 1])
         
-        if 'date_filter_enabled' not in st.session_state:
-            st.session_state.date_filter_enabled = False
-        
-        date_filter_enabled = st.sidebar.checkbox(
-            "Enable Date Filtering", 
-            value=st.session_state.get('date_filter_enabled', False),
-            key='date_filter_checkbox'
-        )
-        
-        st.session_state.date_filter_enabled = date_filter_enabled
-        
-        if date_filter_enabled:
-            default_end = datetime.now().date()
-            default_start = default_end - timedelta(days=30)
+        with col1:
+            email_address = st.text_input("📧 Email Address", 
+                                        placeholder="your-email@gmail.com",
+                                        help="Your Gmail address to access bank transaction alerts")
             
-            existing_start = st.session_state.get('date_filter_start', default_start)
-            existing_end = st.session_state.get('date_filter_end', default_end)
-            
-            start_date = st.sidebar.date_input(
-                "Start Date", 
-                value=existing_start,
-                key='date_start_input'
-            )
-            end_date = st.sidebar.date_input(
-                "End Date", 
-                value=existing_end,
-                min_value=start_date,
-                key='date_end_input'
-            )
-            
-            st.session_state.date_filter_start = start_date
-            st.session_state.date_filter_end = end_date
-            
-            st.sidebar.info(f"Filtering: {start_date.strftime('%b %d, %Y')} to {end_date.strftime('%b %d, %Y')}")
-        else:
-            if 'date_filter_start' in st.session_state:
-                del st.session_state['date_filter_start']
-            if 'date_filter_end' in st.session_state:
-                del st.session_state['date_filter_end']
-
-        # Subscription management options
-        st.sidebar.subheader("🔄 Subscription Management")
-        if st.sidebar.button("🔄 Reset Subscription Data"):
-            st.session_state.subscriptions = []
-            st.sidebar.success("Subscription data reset!")
-
-    with tab1:  # Transaction Analysis Tab
-        st.header("💳 AI Transaction Analysis")
+        with col2:
+            password = st.text_input("🔒 Password", 
+                                   type="password",
+                                   placeholder="Your Gmail password or App Password",
+                                   help="Use App Password if 2FA is enabled")
         
-        if st.session_state.authenticated:
-            if not config_manager.validate_config():
-                st.error("⚠️ Configuration incomplete!")
-                st.error("Please set up your Replicate API token in the `.secret` file.")
-                return
+        login_button = st.button("🚀 Connect & Analyze Transactions", type="primary", use_container_width=True)
+        
+        # Enhanced security notice
+        with st.expander("🛡️ Security & Privacy Information"):
+            st.markdown("""
+            **Your security is our priority:**
+            - ✅ All credentials are processed locally and never stored
+            - ✅ We only read email headers and transaction alerts
+            - ✅ No personal data is transmitted to external services except for AI analysis
+            - ✅ Use Gmail App Passwords for enhanced security
+            - ✅ All analysis happens in real-time without data persistence
             
-            if st.button("🔍 Analyze Transactions with AI", type="primary", use_container_width=True):
-                with st.spinner(f"Processing with AI analysis..."):
-                    
+            **For Gmail App Password setup:**
+            1. Enable 2-Factor Authentication on your Google account
+            2. Go to Google Account Settings → Security → App Passwords
+            3. Generate a new app password for "Mail"
+            4. Use the generated password instead of your regular password
+            """)
+        
+        if login_button:
+            if not email_address or not password:
+                st.error("Please enter both email and password")
+            elif not config_manager.validate_config():
+                st.error("Configuration incomplete. Please check Replicate API token.")
+                config_manager.display_config_status()
+            else:
+                with st.spinner("Authenticating and connecting to your email..."):
+                    extractor = BankEmailExtractor(config_manager)
+                    success, user_email = extractor.authenticate_gmail(email_address, password)
+                    if success:
+                        st.session_state.authenticated = True
+                        st.session_state.user_email = user_email
+                        st.session_state.extractor = extractor
+                        
+                        # Record user session
+                        stats_manager.record_user_session(user_email)
+                        
+                        st.rerun()
+    
+    else:
+        # Main application tabs for authenticated users
+        st.markdown(f"### Welcome back! 👋 {st.session_state.user_email}")
+        
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Transaction Analysis", "🔄 Subscription Tracker", "📈 Analytics Dashboard", "⚙️ Settings"])
+        
+        with tab1:
+            st.markdown("## 🔍 AI-Powered Transaction Analysis")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                max_emails = st.slider("Number of emails to analyze", 10, 200, 50, 10)
+                
+            with col2:
+                analyze_button = st.button("🚀 Analyze Transactions", type="primary", use_container_width=True)
+            
+            # Date filter controls
+            with st.expander("📅 Date Range Filter (Optional)"):
+                enable_date_filter = st.checkbox("Enable date filtering", key="date_filter_enabled")
+                
+                if enable_date_filter:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        start_date = st.date_input("Start Date", 
+                                                 value=datetime.now().date() - timedelta(days=30),
+                                                 key="date_filter_start")
+                    with col2:
+                        end_date = st.date_input("End Date", 
+                                               value=datetime.now().date(),
+                                               key="date_filter_end")
+            
+            if analyze_button:
+                with st.spinner("🔄 Processing your bank emails with AI..."):
+                    extractor = st.session_state.extractor
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
-                    def update_progress(current, total):
-                        progress = current / total
+                    def update_progress(completed, total):
+                        progress = completed / total if total > 0 else 0
                         progress_bar.progress(progress)
-                        status_text.text(f"Processing email {current}/{total}")
-                    
-                    if 'extractor' in st.session_state:
-                        extractor = st.session_state.extractor
-                    else:
-                        extractor = BankEmailExtractor(config_manager)
-                        success, _ = extractor.authenticate_gmail(st.session_state.user_email, "")
-                        if not success:
-                            st.error("Re-authentication failed. Please logout and login again.")
-                            return
+                        status_text.text(f"Processed {completed}/{total} emails...")
                     
                     results = extractor.process_emails(max_emails, update_progress)
-                    
-                    progress_bar.empty()
-                    status_text.empty()
                     
                     if results:
                         st.session_state.transaction_data = results
                         st.session_state.results_processed = True
                         st.session_state.categorizer = extractor.categorizer
-                        st.success(f"✅ Successfully processed {len(results)} transactions!")
                         
-                        categories = list(set([r['category'] for r in results if r.get('category')]))
-                        vendors = list(set([r['merchant_name'] for r in results if r.get('merchant_name') and r['merchant_name'] != 'Unknown Vendor']))
-                        valid_amounts = [r for r in results if r.get('amount')]
+                        # Record transaction analysis statistics
+                        total_amount = sum(float(r.get('amount', 0)) for r in results if r.get('amount') and r.get('amount').replace('.', '').replace(',', '').isdigit())
                         subscription_count = len([r for r in results if r.get('is_subscription', False)])
-                        trial_count = len([r for r in results if r.get('is_trial', False)])
                         
-                        col1, col2, col3, col4, col5 = st.columns(5)
-                        with col1:
-                            st.metric("Categories", len(categories))
-                        with col2:
-                            st.metric("Vendors", len(vendors))
-                        with col3:
-                            st.metric("Valid Amounts", len(valid_amounts))
-                        with col4:
-                            st.metric("Subscriptions", subscription_count)
-                        with col5:
-                            st.metric("Trials", trial_count)
+                        stats_manager.record_transaction_analysis(total_amount, subscription_count)
+                        
+                        st.success(f"✅ Successfully processed {len(results)} transactions!")
+                        progress_bar.empty()
+                        status_text.empty()
                     else:
-                        st.warning("No bank transaction emails found or processed.")
+                        st.warning("No bank transaction emails found. Please check your email settings or try increasing the email count.")
             
             # Display results if available
-            if st.session_state.get('results_processed', False) and 'transaction_data' in st.session_state:
+            if st.session_state.get('results_processed', False) and st.session_state.get('transaction_data'):
                 results = st.session_state.transaction_data
                 categorizer = st.session_state.categorizer
                 
+                # Convert to DataFrame for analysis
                 df = pd.DataFrame(results)
-                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
-                df['amount_numeric'] = pd.to_numeric(df['amount'], errors='coerce')
-                df = df.dropna(subset=['amount_numeric', 'date_parsed'])
-
-                if len(df) == 0:
-                    st.warning("No valid transactions with amounts found.")
-                    return
                 
-                df_display = apply_date_filter(df)
+                # Data cleaning and preparation
+                df['amount_numeric'] = df['amount'].apply(lambda x: float(x) if x and str(x).replace('.', '').replace(',', '').replace('-', '').isdigit() else 0)
+                df = df[df['amount_numeric'] > 0]
                 
-                st.header("📊 Transaction Summary")
-                
-                col1, col2, col3, col4, col5, col6 = st.columns(6)
-                
-                with col1:
-                    create_metric_card("Total Transactions", len(df_display))
-                
-                with col2:
-                    total_amount = df_display['amount_numeric'].sum()
-                    create_metric_card("Total Amount", f"₹{total_amount:,.2f}")
-                
-                with col3:
-                    unique_vendors = df_display['merchant_name'].nunique()
-                    create_metric_card("Unique Vendors", unique_vendors)
-                
-                with col4:
-                    unique_categories = df_display['category'].nunique()
-                    create_metric_card("Categories", unique_categories)
-                
-                with col5:
-                    subscription_count = len(df_display[df_display.get('is_subscription', False) == True])
-                    create_metric_card("Subscriptions", subscription_count)
-                
-                with col6:
-                    trial_count = len(df_display[df_display.get('is_trial', False) == True])
-                    create_metric_card("Trials Detected", trial_count)
-                
-                # AI Insights
-                st.header("🤖 AI-Generated Insights")
-                insights_col1, insights_col2, insights_col3 = st.columns(3)
-                
-                with insights_col1:
-                    top_category = df_display.groupby('category')['amount_numeric'].sum().idxmax()
-                    top_category_amount = df_display.groupby('category')['amount_numeric'].sum().max()
-                    st.info(f"**Top Spending Category:** {top_category} (₹{top_category_amount:,.2f})")
-                
-                with insights_col2:
-                    avg_transaction = df_display['amount_numeric'].mean()
-                    st.info(f"**Average Transaction:** ₹{avg_transaction:,.2f}")
-                
-                with insights_col3:
-                    most_used_bank = df_display['bank'].mode().iloc[0] if not df_display['bank'].mode().empty else "N/A"
-                    st.info(f"**Most Used Bank:** {most_used_bank}")
-                
-                # COLLAPSIBLE VISUALIZATIONS SECTION
-                st.header("📈 Transaction Analysis Charts")
-                
-                viz_results = create_visualizations(df, categorizer)
-                if viz_results[0] is not None:
-                    fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly = viz_results
+                if len(df) > 0:
+                    # Parse dates
+                    df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
+                    df = df.dropna(subset=['date_parsed'])
+                    df = df.sort_values('date_parsed', ascending=False)
                     
-                    # Category Analysis Charts (Collapsible)
-                    with st.expander("📊 Category Analysis Charts", expanded=False):
-                        col1, col2 = st.columns(2)
+                    # Apply date filter if enabled
+                    df_display = apply_date_filter(df)
+                    
+                    if len(df_display) == 0:
+                        st.warning("No transactions found in the selected date range.")
+                    else:
+                        # Summary metrics
+                        st.markdown("### 📊 Transaction Summary")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        
                         with col1:
-                            st.plotly_chart(fig_pie, use_container_width=True)
+                            total_amount = df_display['amount_numeric'].sum()
+                            create_metric_card("Total Amount", f"₹{total_amount:,.2f}")
+                        
                         with col2:
-                            st.plotly_chart(fig_bar, use_container_width=True)
-                    
-                    # Timeline Analysis (Collapsible)
-                    with st.expander("📈 Timeline Analysis", expanded=False):
-                        st.plotly_chart(fig_timeline, use_container_width=True)
-                    
-                    # Monthly & Bank Analysis (Collapsible)
-                    with st.expander("📅 Monthly & Bank Analysis", expanded=False):
-                        col3, col4 = st.columns(2)
+                            transaction_count = len(df_display)
+                            create_metric_card("Total Transactions", f"{transaction_count:,}")
+                        
                         with col3:
-                            st.plotly_chart(fig_monthly, use_container_width=True)
+                            avg_amount = df_display['amount_numeric'].mean()
+                            create_metric_card("Average Amount", f"₹{avg_amount:,.2f}")
+                        
                         with col4:
-                            st.plotly_chart(fig_bank, use_container_width=True)
-                    
-                    # Advanced Pattern Analysis (Collapsible)
-                    with st.expander("🔍 Advanced Pattern Analysis", expanded=False):
-                        col5, col6 = st.columns(2)
-                        with col5:
-                            st.plotly_chart(fig_heatmap, use_container_width=True)
-                        with col6:
-                            st.plotly_chart(fig_hourly, use_container_width=True)
-                
-                # Transaction Details
-                st.header("🔍 Transaction Details")
-                
-                # Filters
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    selected_categories = st.multiselect(
-                        "Filter by Category",
-                        options=sorted(df_display['category'].unique()),
-                        default=[]
-                    )
-                
-                with col2:
-                    selected_banks = st.multiselect(
-                        "Filter by Bank",
-                        options=sorted(df_display['bank'].unique()),
-                        default=[]
-                    )
-                
-                with col3:
-                    amount_range = st.slider(
-                        "Amount Range (₹)",
-                        min_value=float(df_display['amount_numeric'].min()),
-                        max_value=float(df_display['amount_numeric'].max()),
-                        value=(float(df_display['amount_numeric'].min()), float(df_display['amount_numeric'].max())),
-                        step=10.0
-                    )
-                
-                # Apply filters
-                filtered_df = df_display.copy()
-                if selected_categories:
-                    filtered_df = filtered_df[filtered_df['category'].isin(selected_categories)]
-                if selected_banks:
-                    filtered_df = filtered_df[filtered_df['bank'].isin(selected_banks)]
-                
-                filtered_df = filtered_df[
-                    (filtered_df['amount_numeric'] >= amount_range[0]) &
-                    (filtered_df['amount_numeric'] <= amount_range[1])
-                ]
-                
-                st.write(f"Showing {len(filtered_df)} transactions")
-                
-                # Sort options
-                sort_by = st.selectbox(
-                    "Sort by",
-                    ["Date (Newest first)", "Date (Oldest first)", "Amount (High to Low)", "Amount (Low to High)", "Category"]
-                )
-                
-                if sort_by == "Date (Newest first)":
-                    filtered_df = filtered_df.sort_values('date_parsed', ascending=False)
-                elif sort_by == "Date (Oldest first)":
-                    filtered_df = filtered_df.sort_values('date_parsed', ascending=True)
-                elif sort_by == "Amount (High to Low)":
-                    filtered_df = filtered_df.sort_values('amount_numeric', ascending=False)
-                elif sort_by == "Amount (Low to High)":
-                    filtered_df = filtered_df.sort_values('amount_numeric', ascending=True)
-                elif sort_by == "Category":
-                    filtered_df = filtered_df.sort_values('category')
-                
-                # Display transactions as cards
-                for _, row in filtered_df.iterrows():
-                    display_transaction_card(row, categorizer)
-                
-                # Export options
-                st.header("📤 Export Data")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if st.button("📁 Download CSV", use_container_width=True):
-                        csv_data = filtered_df.to_csv(index=False)
-                        st.download_button(
-                            label="💾 Download Filtered Transactions",
-                            data=csv_data,
-                            file_name=f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv"
-                        )
-                
-                with col2:
-                    if st.button("📊 Download Full Analysis", use_container_width=True):
-                        analysis_data = {
-                            'summary': {
-                                'total_transactions': len(df_display),
-                                'total_amount': float(df_display['amount_numeric'].sum()),
-                                'date_range': f"{df_display['date_parsed'].min().date()} to {df_display['date_parsed'].max().date()}",
-                                'categories': df_display['category'].value_counts().to_dict(),
-                                'banks': df_display['bank'].value_counts().to_dict(),
-                                'subscription_count': len(df_display[df_display.get('is_subscription', False) == True]),
-                                'trial_count': len(df_display[df_display.get('is_trial', False) == True])
-                            },
-                            'transactions': df_display.to_dict('records')
-                        }
+                            unique_merchants = df_display['merchant_name'].nunique()
+                            create_metric_card("Unique Merchants", f"{unique_merchants}")
                         
-                        json_data = json.dumps(analysis_data, default=str, indent=2)
-                        st.download_button(
-                            label="💾 Download Full Analysis (JSON)",
-                            data=json_data,
-                            file_name=f"full_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                            mime="application/json"
-                        )
-        else:
-            st.info("Please authenticate with Gmail to analyze your transaction emails.")
-
-    with tab2:  # Subscription Tracker Tab
-        st.header("🔄 AI Subscription Tracker")
-        
-        if st.session_state.authenticated:
-            # Auto-detect subscriptions from transaction data
-            if st.session_state.get('transaction_data'):
-                df = pd.DataFrame(st.session_state.transaction_data)
-                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
-                df['amount_numeric'] = pd.to_numeric(df['amount'], errors='coerce')
-                df = df.dropna(subset=['amount_numeric', 'date_parsed'])
-                
-                if st.button("🔍 Auto-Detect Subscriptions from Transactions", type="primary"):
-                    with st.spinner("Analyzing transactions for subscription patterns..."):
-                        detected_subs = subscription_tracker.detect_subscriptions_from_transactions(df)
+                        # Category breakdown
+                        st.markdown("### 🏷️ Spending by Category")
+                        category_summary = df_display.groupby('category').agg({
+                            'amount_numeric': ['sum', 'count', 'mean']
+                        }).round(2)
+                        category_summary.columns = ['Total Amount', 'Transaction Count', 'Average Amount']
+                        category_summary = category_summary.sort_values('Total Amount', ascending=False)
                         
-                        if detected_subs:
-                            # Ensure unique IDs
-                            detected_subs = ensure_unique_subscription_ids(detected_subs)
-                            
-                            # Merge with existing subscriptions, avoiding duplicates
-                            existing_ids = {sub['id'] for sub in st.session_state.subscriptions}
-                            new_subs = [sub for sub in detected_subs if sub['id'] not in existing_ids]
-                            
-                            st.session_state.subscriptions.extend(new_subs)
-                            
-                            st.success(f"✅ Detected {len(detected_subs)} subscriptions! ({len(new_subs)} new)")
-                            
-                            # Show detection summary
-                            trial_count = len([sub for sub in detected_subs if sub.get('is_trial', False)])
-                            active_count = len([sub for sub in detected_subs if sub.get('status') == 'Active'])
+                        st.dataframe(category_summary, use_container_width=True)
+                        
+                        # Subscription insights
+                        subscription_df = df_display[df_display['is_subscription'] == True]
+                        if len(subscription_df) > 0:
+                            st.markdown("### 🔄 Subscription Insights")
                             
                             col1, col2, col3 = st.columns(3)
+                            
                             with col1:
-                                st.metric("Total Detected", len(detected_subs))
+                                subscription_count = len(subscription_df)
+                                create_metric_card("Subscription Transactions", f"{subscription_count}")
+                            
                             with col2:
-                                st.metric("Active Subscriptions", active_count)
+                                subscription_amount = subscription_df['amount_numeric'].sum()
+                                create_metric_card("Subscription Spending", f"₹{subscription_amount:,.2f}")
+                            
                             with col3:
-                                st.metric("Trials Detected", trial_count)
+                                trial_count = len(subscription_df[subscription_df['is_trial'] == True])
+                                create_metric_card("Trial Subscriptions", f"{trial_count}")
+                        
+                        # Visualizations
+                        st.markdown("### 📈 Spending Analysis")
+                        
+                        with st.expander("📊 View Detailed Charts", expanded=True):
+                            fig_pie, fig_bar, fig_timeline, fig_monthly, fig_bank, fig_heatmap, fig_hourly = create_visualizations(df_display, categorizer)
+                            
+                            if fig_pie:
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.plotly_chart(fig_pie, use_container_width=True)
+                                with col2:
+                                    st.plotly_chart(fig_bar, use_container_width=True)
+                                
+                                st.plotly_chart(fig_timeline, use_container_width=True)
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.plotly_chart(fig_monthly, use_container_width=True)
+                                with col2:
+                                    st.plotly_chart(fig_bank, use_container_width=True)
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                                with col2:
+                                    st.plotly_chart(fig_hourly, use_container_width=True)
+                        
+                        # Transaction details
+                        st.markdown("### 💳 Transaction Details")
+                        
+                        with st.expander("🔍 Filter Transactions"):
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                selected_categories = st.multiselect(
+                                    "Filter by Category",
+                                    options=df_display['category'].unique(),
+                                    default=df_display['category'].unique()
+                                )
+                            
+                            with col2:
+                                selected_banks = st.multiselect(
+                                    "Filter by Bank",
+                                    options=df_display['bank'].unique(),
+                                    default=df_display['bank'].unique()
+                                )
+                            
+                            with col3:
+                                amount_range = st.slider(
+                                    "Amount Range",
+                                    min_value=float(df_display['amount_numeric'].min()),
+                                    max_value=float(df_display['amount_numeric'].max()),
+                                    value=(float(df_display['amount_numeric'].min()), float(df_display['amount_numeric'].max()))
+                                )
+                        
+                        # Apply filters
+                        filtered_df = df_display[
+                            (df_display['category'].isin(selected_categories)) &
+                            (df_display['bank'].isin(selected_banks)) &
+                            (df_display['amount_numeric'] >= amount_range[0]) &
+                            (df_display['amount_numeric'] <= amount_range[1])
+                        ]
+                        
+                        st.write(f"Showing {len(filtered_df)} transactions")
+                        
+                        # Display transactions as cards
+                        for idx, row in filtered_df.head(20).iterrows():
+                            display_transaction_card(row, categorizer)
+                        
+                        if len(filtered_df) > 20:
+                            st.info(f"Showing first 20 transactions. {len(filtered_df) - 20} more available.")
+                        
+                        # Export functionality
+                        st.markdown("### 📤 Export Data")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            csv_data = filtered_df.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Download as CSV",
+                                data=csv_data,
+                                file_name=f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv",
+                                use_container_width=True
+                            )
+                        
+                        with col2:
+                            json_data = filtered_df.to_json(orient='records', date_format='iso')
+                            st.download_button(
+                                label="📥 Download as JSON",
+                                data=json_data,
+                                file_name=f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                mime="application/json",
+                                use_container_width=True
+                            )
+                else:
+                    st.warning("No valid transaction data found in the processed emails.")
+        
+        with tab2:
+            st.markdown("## 🔄 Subscription Management")
+            
+            # Initialize subscription tracker
+            tracker = SubscriptionTracker(config_manager)
+            
+            # Auto-detect subscriptions from transaction data
+            if st.session_state.get('results_processed', False) and st.session_state.get('transaction_data'):
+                if st.button("🔍 Auto-Detect Subscriptions from Transactions", type="primary"):
+                    with st.spinner("Analyzing transactions for subscription patterns..."):
+                        df = pd.DataFrame(st.session_state.transaction_data)
+                        df['amount_numeric'] = df['amount'].apply(lambda x: float(x) if x and str(x).replace('.', '').replace(',', '').replace('-', '').isdigit() else 0)
+                        df = df[df['amount_numeric'] > 0]
+                        
+                        if len(df) > 0:
+                            df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
+                            df = df.dropna(subset=['date_parsed'])
+                            
+                            detected_subs = tracker.detect_subscriptions_from_transactions(df)
+                            
+                            if detected_subs:
+                                # Ensure unique IDs and merge with existing subscriptions
+                                existing_services = {sub.get('service_name', '').lower() for sub in st.session_state.subscriptions}
+                                new_subs = []
+                                
+                                for sub in detected_subs:
+                                    if sub['service_name'].lower() not in existing_services:
+                                        new_subs.append(sub)
+                                        existing_services.add(sub['service_name'].lower())
+                                
+                                if new_subs:
+                                    st.session_state.subscriptions.extend(new_subs)
+                                    st.session_state.subscriptions = ensure_unique_subscription_ids(st.session_state.subscriptions)
+                                    st.success(f"✅ Detected and added {len(new_subs)} new subscriptions!")
+                                else:
+                                    st.info("No new subscriptions detected. All found subscriptions are already in your list.")
+                            else:
+                                st.warning("No subscription patterns detected in your transaction data.")
                         else:
-                            st.warning("No subscription patterns detected in your transactions.")
+                            st.warning("No valid transaction data available for subscription detection.")
             
             # Manual subscription addition
-            st.subheader("➕ Add Manual Subscription")
-            with st.form("add_subscription"):
+            st.markdown("### ➕ Add Manual Subscription")
+            
+            with st.expander("Add New Subscription"):
                 col1, col2 = st.columns(2)
+                
                 with col1:
                     service_name = st.text_input("Service Name", placeholder="e.g., Netflix, Spotify")
-                    amount = st.number_input("Amount", min_value=0.01, step=0.01, format="%.2f")
+                    amount = st.number_input("Amount", min_value=0.01, value=99.0, step=0.01)
                     billing_cycle = st.selectbox("Billing Cycle", ["Monthly", "Quarterly", "Yearly"])
                 
                 with col2:
-                    category = st.text_input("Category", placeholder="e.g., Streaming, Software")
+                    category = st.text_input("Category", placeholder="e.g., Streaming, SaaS")
                     start_date = st.date_input("Start Date", value=datetime.now().date())
-                    bank = st.selectbox("Bank", ["SBI", "HDFC Bank", "ICICI Bank", "Axis Bank", "Other"])
+                    status = st.selectbox("Status", ["Active", "Trial", "Inactive"])
                 
-                if st.form_submit_button("Add Subscription", type="primary"):
-                    if service_name and amount:
+                if st.button("➕ Add Subscription"):
+                    if service_name and amount > 0:
                         subscription_data = {
                             'service_name': service_name,
                             'amount': amount,
                             'billing_cycle': billing_cycle,
+                            'category': category or 'Other',
                             'start_date': start_date,
                             'last_payment': start_date,
-                            'category': category or "Other",
-                            'bank': bank,
-                            'status': 'Active',
-                            'transaction_count': 1,
-                            'confidence_score': 100
+                            'status': status,
+                            'bank': 'Manual Entry'
                         }
                         
-                        if subscription_tracker.add_subscription(subscription_data):
+                        if tracker.add_subscription(subscription_data):
                             st.success(f"✅ Added {service_name} subscription!")
                             st.rerun()
                         else:
-                            st.error("Failed to add subscription")
+                            st.error("Failed to add subscription.")
                     else:
-                        st.error("Please fill in service name and amount")
+                        st.error("Please fill in all required fields.")
             
             # Display subscriptions
             if st.session_state.subscriptions:
-                metrics = subscription_tracker.calculate_subscription_metrics(st.session_state.subscriptions)
+                # Calculate metrics
+                metrics = tracker.calculate_subscription_metrics(st.session_state.subscriptions)
                 
                 # Summary cards
-                st.subheader("📊 Subscription Overview")
+                st.markdown("### 📊 Subscription Overview")
                 
                 col1, col2, col3, col4 = st.columns(4)
+                
                 with col1:
-                    create_metric_card("Monthly Cost", f"₹{metrics['total_monthly']:,.2f}")
+                    st.markdown(f"""
+                    <div class="subscription-summary">
+                        <div class="summary-stat">
+                            <div class="summary-value">₹{metrics['total_monthly']:,.2f}</div>
+                            <div class="summary-label">Monthly Total</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col2:
-                    create_metric_card("Yearly Cost", f"₹{metrics['total_yearly']:,.2f}")
+                    st.markdown(f"""
+                    <div class="subscription-summary">
+                        <div class="summary-stat">
+                            <div class="summary-value">₹{metrics['total_yearly']:,.2f}</div>
+                            <div class="summary-label">Yearly Total</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col3:
-                    create_metric_card("Active Subscriptions", metrics['active_count'])
+                    st.markdown(f"""
+                    <div class="subscription-summary">
+                        <div class="summary-stat">
+                            <div class="summary-value">{metrics['active_count']}</div>
+                            <div class="summary-label">Active Subscriptions</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 with col4:
-                    create_metric_card("Trial Subscriptions", metrics['trial_count'])
+                    trial_color = "#ffc107" if metrics['trial_count'] > 0 else "#28a745"
+                    st.markdown(f"""
+                    <div class="subscription-summary" style="background: linear-gradient(135deg, {trial_color} 0%, #764ba2 100%);">
+                        <div class="summary-stat">
+                            <div class="summary-value">{metrics['trial_count']}</div>
+                            <div class="summary-label">Trial Subscriptions</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 
-                if metrics['trial_count'] > 0:
-                    trial_subs = [sub for sub in st.session_state.subscriptions if sub.get('is_trial', False)]
-                    total_trial_cost = sum(sub['amount'] for sub in trial_subs if sub['billing_cycle'] == 'Monthly') * 12
-                    total_trial_cost += sum(sub['amount'] for sub in trial_subs if sub['billing_cycle'] == 'Quarterly') * 4
-                    total_trial_cost += sum(sub['amount'] for sub in trial_subs if sub['billing_cycle'] == 'Yearly')
+                # Subscription visualizations
+                if len(st.session_state.subscriptions) > 0:
+                    st.markdown("### 📈 Subscription Analytics")
                     
-                    st.warning(f"⚠️ You have {metrics['trial_count']} trial subscriptions that could cost ₹{total_trial_cost:,.2f}/year if converted to paid plans")
-                
-                # COLLAPSIBLE SUBSCRIPTION VISUALIZATIONS
-                st.subheader("📈 Subscription Analysis Charts")
-                
-                fig_monthly, fig_category, fig_yearly = create_subscription_visualizations(
-                    st.session_state.subscriptions, metrics
-                )
-                
-                if fig_monthly:
-                    # Service & Category Breakdown (Collapsible)
-                    with st.expander("📊 Service & Category Breakdown", expanded=False):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.plotly_chart(fig_monthly, use_container_width=True)
-                        with col2:
-                            st.plotly_chart(fig_category, use_container_width=True)
-                    
-                    # Yearly Projection (Collapsible)
-                    with st.expander("📅 Yearly Spending Projection", expanded=False):
-                        st.plotly_chart(fig_yearly, use_container_width=True)
-                
-                # Subscription list
-                st.subheader("📋 Your Subscriptions")
-                
-                # Filter options
-                filter_col1, filter_col2, filter_col3 = st.columns(3)
-                with filter_col1:
-                    status_filter = st.selectbox("Filter by Status", ["All", "Active", "Trial", "Inactive"])
-                with filter_col2:
-                    category_filter = st.selectbox(
-                        "Filter by Category", 
-                        ["All"] + list(set(sub.get('category', 'Other') for sub in st.session_state.subscriptions))
-                    )
-                with filter_col3:
-                    sort_option = st.selectbox("Sort by", ["Amount (High to Low)", "Amount (Low to High)", "Name", "Next Payment"])
-                
-                # Apply filters and sorting
-                filtered_subs = st.session_state.subscriptions.copy()
-                
-                if status_filter != "All":
-                    filtered_subs = [sub for sub in filtered_subs if sub.get('status', 'Active') == status_filter]
-                
-                if category_filter != "All":
-                    filtered_subs = [sub for sub in filtered_subs if sub.get('category', 'Other') == category_filter]
-                
-                # Sort subscriptions
-                if sort_option == "Amount (High to Low)":
-                    filtered_subs.sort(key=lambda x: x['amount'], reverse=True)
-                elif sort_option == "Amount (Low to High)":
-                    filtered_subs.sort(key=lambda x: x['amount'])
-                elif sort_option == "Name":
-                    filtered_subs.sort(key=lambda x: x['service_name'])
-                elif sort_option == "Next Payment":
-                    filtered_subs.sort(key=lambda x: subscription_tracker.get_next_payment_date(x))
-                
-                # Display subscription cards using NEW HTML-free function
-                for subscription in filtered_subs:
-                    display_subscription_card(subscription, subscription_tracker)
-                    
-                    # Management buttons
-                    col1, col2 = st.columns([1, 1])
-                    with col1:
-                        if st.button(f"⚙️ Manage {subscription['service_name']}", key=f"manage_{subscription['id']}"):
-                            st.session_state.editing_subscription = subscription['id']
-                    
-                    with col2:
-                        if st.button(f"🗑️ Delete {subscription['service_name']}", key=f"delete_{subscription['id']}"):
-                            if subscription_tracker.delete_subscription(subscription['id']):
-                                st.success(f"Deleted {subscription['service_name']}")
-                                st.rerun()
-                    
-                    # Edit form (if editing this subscription)
-                    if st.session_state.get('editing_subscription') == subscription['id']:
-                        with st.form(f"edit_form_{subscription['id']}"):
-                            st.subheader(f"Edit {subscription['service_name']}")
-                            
-                            edit_col1, edit_col2 = st.columns(2)
-                            with edit_col1:
-                                new_name = st.text_input("Service Name", value=subscription['service_name'])
-                                new_amount = st.number_input("Amount", value=subscription['amount'], min_value=0.01, step=0.01)
-                                new_cycle = st.selectbox("Billing Cycle", ["Monthly", "Quarterly", "Yearly"], 
-                                                       index=["Monthly", "Quarterly", "Yearly"].index(subscription['billing_cycle']))
-                            
-                            with edit_col2:
-                                new_category = st.text_input("Category", value=subscription.get('category', ''))
-                                new_status = st.selectbox("Status", ["Active", "Trial", "Inactive"], 
-                                                        index=["Active", "Trial", "Inactive"].index(subscription.get('status', 'Active')))
-                                new_bank = st.text_input("Bank", value=subscription.get('bank', ''))
-                            
+                    with st.expander("📊 View Charts", expanded=False):
+                        fig_monthly, fig_category, fig_yearly = create_subscription_visualizations(st.session_state.subscriptions, metrics)
+                        
+                        if fig_monthly:
                             col1, col2 = st.columns(2)
                             with col1:
-                                if st.form_submit_button("💾 Save Changes", type="primary"):
-                                    updated_data = {
-                                        'service_name': new_name,
-                                        'amount': new_amount,
-                                        'billing_cycle': new_cycle,
-                                        'category': new_category,
-                                        'status': new_status,
-                                        'bank': new_bank
-                                    }
-                                    
-                                    if subscription_tracker.update_subscription(subscription['id'], updated_data):
-                                        st.success("Subscription updated!")
-                                        st.session_state.editing_subscription = None
-                                        st.rerun()
-                                    else:
-                                        st.error("Failed to update subscription")
-                            
+                                st.plotly_chart(fig_monthly, use_container_width=True)
                             with col2:
-                                if st.form_submit_button("❌ Cancel"):
-                                    st.session_state.editing_subscription = None
+                                st.plotly_chart(fig_category, use_container_width=True)
+                            
+                            st.plotly_chart(fig_yearly, use_container_width=True)
+                
+                # Subscription list
+                st.markdown("### 📋 Your Subscriptions")
+                
+                # Filter options
+                with st.expander("🔍 Filter Subscriptions"):
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        status_filter = st.multiselect(
+                            "Filter by Status",
+                            options=["Active", "Trial", "Inactive"],
+                            default=["Active", "Trial"]
+                        )
+                    
+                    with col2:
+                        categories = list(set(sub.get('category', 'Other') for sub in st.session_state.subscriptions))
+                        category_filter = st.multiselect(
+                            "Filter by Category",
+                            options=categories,
+                            default=categories
+                        )
+                    
+                    with col3:
+                        sort_by = st.selectbox(
+                            "Sort by",
+                            options=["Amount (High to Low)", "Amount (Low to High)", "Name", "Next Payment"]
+                        )
+                
+                # Apply filters and sorting
+                filtered_subs = [
+                    sub for sub in st.session_state.subscriptions
+                    if sub.get('status', 'Active') in status_filter
+                    and sub.get('category', 'Other') in category_filter
+                ]
+                
+                # Sort subscriptions
+                if sort_by == "Amount (High to Low)":
+                    filtered_subs.sort(key=lambda x: x['amount'], reverse=True)
+                elif sort_by == "Amount (Low to High)":
+                    filtered_subs.sort(key=lambda x: x['amount'])
+                elif sort_by == "Name":
+                    filtered_subs.sort(key=lambda x: x['service_name'])
+                elif sort_by == "Next Payment":
+                    filtered_subs.sort(key=lambda x: tracker.get_next_payment_date(x))
+                
+                if filtered_subs:
+                    for subscription in filtered_subs:
+                        display_subscription_card(subscription, tracker)
+                        
+                        # Edit/Delete buttons
+                        col1, col2, col3 = st.columns([1, 1, 8])
+                        
+                        with col1:
+                            if st.button("✏️ Edit", key=f"edit_{subscription['id']}"):
+                                st.session_state[f"editing_{subscription['id']}"] = True
+                        
+                        with col2:
+                            if st.button("🗑️ Delete", key=f"delete_{subscription['id']}"):
+                                if tracker.delete_subscription(subscription['id']):
+                                    st.success(f"Deleted {subscription['service_name']}")
                                     st.rerun()
+                        
+                            # Edit form - FIXED VERSION
+                        if st.session_state.get(f"editing_{subscription['id']}", False):
+                            with st.form(key=f"edit_form_{subscription['id']}"):
+                                st.write(f"**Editing {subscription['service_name']}**")
+                                
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    new_name = st.text_input("Service Name", value=subscription['service_name'])
+                                    new_amount = st.number_input("Amount", value=subscription['amount'], min_value=0.01)
+                                    new_cycle = st.selectbox("Billing Cycle", 
+                                                           options=["Monthly", "Quarterly", "Yearly"],
+                                                           index=["Monthly", "Quarterly", "Yearly"].index(subscription['billing_cycle']))
+                                
+                                with col2:
+                                    new_category = st.text_input("Category", value=subscription.get('category', ''))
+                                    new_status = st.selectbox("Status",
+                                                            options=["Active", "Trial", "Inactive"],
+                                                            index=["Active", "Trial", "Inactive"].index(subscription.get('status', 'Active')))
+                                
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    if st.form_submit_button("💾 Save Changes"):
+                                        updated_data = {
+                                            'service_name': new_name,
+                                            'amount': new_amount,
+                                            'billing_cycle': new_cycle,
+                                            'category': new_category,
+                                            'status': new_status
+                                        }
+                                        
+                                        if tracker.update_subscription(subscription['id'], updated_data):
+                                            st.success("✅ Subscription updated!")
+                                            st.session_state[f"editing_{subscription['id']}"] = False
+                                            st.rerun()
+                                        else:
+                                            st.error("Failed to update subscription.")
+                                
+                                with col2:
+                                    if st.form_submit_button("❌ Cancel"):
+                                        st.session_state[f"editing_{subscription['id']}"] = False
+                                        st.rerun()
+                        
+                        
+                        st.markdown("---")
+                else:
+                    st.info("No subscriptions match the current filters.")
                 
                 # Export subscriptions
-                st.subheader("📤 Export Subscription Data")
-                subscription_df = pd.DataFrame(st.session_state.subscriptions)
-                csv_data = subscription_df.to_csv(index=False)
-                
-                st.download_button(
-                    label="📁 Download Subscriptions CSV",
-                    data=csv_data,
-                    file_name=f"subscriptions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-                
-            else:
-                st.info("No subscriptions tracked yet. Add subscriptions manually or analyze transactions to detect them automatically.")
-        
-        else:
-            st.info("Please authenticate with Gmail to track your subscriptions.")
-
-    with tab3:  # Combined Insights Tab
-        st.header("📊 Combined Financial Insights")
-        
-        if st.session_state.authenticated:
-            if st.session_state.get('transaction_data') and st.session_state.subscriptions:
-                
-                # Combined metrics
-                st.subheader("💰 Financial Overview")
-                
-                df = pd.DataFrame(st.session_state.transaction_data)
-                df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
-                df['amount_numeric'] = pd.to_numeric(df['amount'], errors='coerce')
-                df = df.dropna(subset=['amount_numeric', 'date_parsed'])
-                
-                df_filtered = apply_date_filter(df)
-                subscription_metrics = subscription_tracker.calculate_subscription_metrics(st.session_state.subscriptions)
-                
-                col1, col2, col3, col4, col5 = st.columns(5)
-                
-                with col1:
-                    total_transactions = df_filtered['amount_numeric'].sum()
-                    create_metric_card("Total Transactions", f"₹{total_transactions:,.2f}")
-                
-                with col2:
-                    create_metric_card("Monthly Subscriptions", f"₹{subscription_metrics['total_monthly']:,.2f}")
-                
-                with col3:
-                    subscription_percentage = (subscription_metrics['total_monthly'] / total_transactions * 100) if total_transactions > 0 else 0
-                    create_metric_card("Subscription %", f"{subscription_percentage:.1f}%")
-                
-                with col4:
-                    non_subscription_spending = total_transactions - subscription_metrics['total_monthly']
-                    create_metric_card("Other Spending", f"₹{non_subscription_spending:,.2f}")
-                
-                with col5:
-                    trial_count = subscription_metrics['trial_count']
-                    create_metric_card("Active Trials", trial_count)
-                
-                # COLLAPSIBLE SPENDING BREAKDOWN
-                with st.expander("📈 Detailed Spending Breakdown", expanded=False):
-                    st.subheader("📈 Spending Breakdown")
-                    
-                    # Create comparison chart
-                    categories_df = df_filtered.groupby('category')['amount_numeric'].sum().reset_index()
-                    categories_df['type'] = 'One-time'
-                    
-                    # Add subscription categories
-                    subscription_categories = {}
-                    for sub in st.session_state.subscriptions:
-                        if sub.get('status', 'Active') in ['Active', 'Trial']:
-                            category = sub.get('category', 'Other')
-                            monthly_amount = sub['amount'] if sub['billing_cycle'] == 'Monthly' else (
-                                sub['amount'] / 3 if sub['billing_cycle'] == 'Quarterly' else sub['amount'] / 12
-                            )
-                            subscription_categories[category] = subscription_categories.get(category, 0) + monthly_amount
-                    
-                    sub_df = pd.DataFrame([
-                        {'category': cat, 'amount_numeric': amount, 'type': 'Recurring'}
-                        for cat, amount in subscription_categories.items()
-                    ])
-                    
-                    if not sub_df.empty:
-                        combined_df = pd.concat([categories_df, sub_df], ignore_index=True)
-                    else:
-                        combined_df = categories_df
-                    
-                    fig_combined = px.bar(
-                        combined_df,
-                        x='category',
-                        y='amount_numeric',
-                        color='type',
-                        title='Spending by Category: One-time vs Recurring',
-                        barmode='group'
-                    )
-                    fig_combined.update_layout(xaxis_tickangle=-45)
-                    st.plotly_chart(fig_combined, use_container_width=True)
-                
-                # Recommendations
-                st.subheader("💡 AI Recommendations")
-                
-                recommendations = []
-                
-                # Trial analysis
-                trial_subs = [sub for sub in st.session_state.subscriptions if sub.get('is_trial', False)]
-                if trial_subs:
-                    trial_cost = sum(
-                        sub['amount'] * (12 if sub['billing_cycle'] == 'Monthly' else 
-                                       4 if sub['billing_cycle'] == 'Quarterly' else 1)
-                        for sub in trial_subs
-                    )
-                    recommendations.append({
-                        'type': 'warning',
-                        'title': 'Trial Subscriptions Alert',
-                        'description': f"You have {len(trial_subs)} trial subscriptions that could cost ₹{trial_cost:,.2f}/year if not cancelled.",
-                        'action': 'Review and cancel unused trials before they convert to paid subscriptions.'
-                    })
-                
-                # High subscription spending
-                if subscription_percentage > 30:
-                    recommendations.append({
-                        'type': 'info',
-                        'title': 'High Subscription Spending',
-                        'description': f'Subscriptions account for {subscription_percentage:.1f}% of your spending.',
-                        'action': 'Review your subscriptions and cancel unused ones to reduce recurring costs.'
-                    })
-                
-                # Duplicate category analysis
-                category_counts = {}
-                for sub in st.session_state.subscriptions:
-                    if sub.get('status', 'Active') in ['Active', 'Trial']:
-                        category = sub.get('category', 'Other')
-                        category_counts[category] = category_counts.get(category, 0) + 1
-                
-                duplicate_categories = [cat for cat, count in category_counts.items() if count > 2]
-                if duplicate_categories:
-                    recommendations.append({
-                        'type': 'warning',
-                        'title': 'Multiple Services in Same Category',
-                        'description': f'You have multiple subscriptions in: {", ".join(duplicate_categories)}',
-                        'action': 'Consider consolidating to reduce costs and simplify management.'
-                    })
-                
-                # Spending pattern analysis
-                if len(df_filtered) > 0:
-                    avg_daily_spending = df_filtered['amount_numeric'].sum() / max(1, len(df_filtered.groupby(df_filtered['date_parsed'].dt.date)))
-                    monthly_avg = avg_daily_spending * 30
-                    
-                    if monthly_avg > subscription_metrics['total_monthly'] * 3:
-                        recommendations.append({
-                            'type': 'info',
-                            'title': 'Variable Spending High',
-                            'description': f'Your variable spending (₹{monthly_avg:,.2f}/month) is much higher than subscriptions.',
-                            'action': 'Track your variable expenses more closely to identify saving opportunities.'
-                        })
-                
-                # Display recommendations
-                for rec in recommendations:
-                    if rec['type'] == 'warning':
-                        st.warning(f"⚠️ **{rec['title']}**: {rec['description']} *{rec['action']}*")
-                    else:
-                        st.info(f"💡 **{rec['title']}**: {rec['description']} *{rec['action']}*")
-                
-                # Future projections
-                st.subheader("📅 Financial Projections")
-                
-                months_remaining = (date(datetime.now().year, 12, 31) - datetime.now().date()).days / 30.44
-                projected_subscription_cost = subscription_metrics['total_monthly'] * months_remaining
+                st.markdown("### 📤 Export Subscriptions")
                 
                 col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Remaining Year Subscription Cost", f"₹{projected_subscription_cost:,.2f}")
-                with col2:
-                    potential_savings = sum(sub['amount'] * (12 if sub['billing_cycle'] == 'Monthly' else 4 if sub['billing_cycle'] == 'Quarterly' else 1) 
-                                          for sub in trial_subs)
-                    st.metric("Potential Annual Savings", f"₹{potential_savings:,.2f}")
                 
-            elif st.session_state.get('transaction_data'):
-                st.info("Add some subscriptions to see combined insights with your transaction data.")
-            elif st.session_state.subscriptions:
-                st.info("Analyze your transactions to see combined insights with your subscription data.")
+                with col1:
+                    subscription_df = pd.DataFrame(st.session_state.subscriptions)
+                    csv_data = subscription_df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Subscriptions as CSV",
+                        data=csv_data,
+                        file_name=f"subscriptions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                
+                with col2:
+                    json_data = json.dumps(st.session_state.subscriptions, indent=2, default=str)
+                    st.download_button(
+                        label="📥 Download Subscriptions as JSON",
+                        data=json_data,
+                        file_name=f"subscriptions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
             else:
-                st.info("Analyze transactions and track subscriptions to see combined financial insights.")
-        else:
-            st.info("Please authenticate with Gmail to view combined insights.")
+                st.info("💡 No subscriptions found. Add one manually or analyze your transactions to auto-detect subscriptions.")
+        
+        with tab3:
+            st.markdown("## 📈 Advanced Analytics Dashboard")
+            
+            if st.session_state.get('results_processed', False) and st.session_state.get('transaction_data'):
+                df = pd.DataFrame(st.session_state.transaction_data)
+                df['amount_numeric'] = df['amount'].apply(lambda x: float(x) if x and str(x).replace('.', '').replace(',', '').replace('-', '').isdigit() else 0)
+                df = df[df['amount_numeric'] > 0]
+                
+                if len(df) > 0:
+                    df['date_parsed'] = pd.to_datetime(df['date'], errors='coerce')
+                    df = df.dropna(subset=['date_parsed'])
+                    
+                    # Apply date filter if enabled
+                    df_filtered = apply_date_filter(df)
+                    
+                    if len(df_filtered) > 0:
+                        # Advanced insights
+                        st.markdown("### 🧠 Smart Insights")
+                        
+                        # Spending patterns
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("#### 📊 Spending Distribution")
+                            
+                            # Top spending categories
+                            top_categories = df_filtered.groupby('category')['amount_numeric'].sum().sort_values(ascending=False).head(5)
+                            
+                            for category, amount in top_categories.items():
+                                percentage = (amount / df_filtered['amount_numeric'].sum()) * 100
+                                st.write(f"**{category}:** ₹{amount:,.2f} ({percentage:.1f}%)")
+                        
+                        with col2:
+                            st.markdown("#### 🏪 Top Merchants")
+                            
+                            top_merchants = df_filtered.groupby('merchant_name')['amount_numeric'].sum().sort_values(ascending=False).head(5)
+                            
+                            for merchant, amount in top_merchants.items():
+                                st.write(f"**{merchant}:** ₹{amount:,.2f}")
+                        
+                        # Spending trends
+                        st.markdown("### 📈 Spending Trends")
+                        # Add this BEFORE the problematic line 2727
+                        # Ensure date_parsed is datetime before using .dt accessor
+                        if 'date_parsed' in df_filtered.columns:
+                            if not pd.api.types.is_datetime64_any_dtype(df_filtered['date_parsed']):
+                                df_filtered['date_parsed'] = pd.to_datetime(
+                                    df_filtered['date_parsed'],
+                                    errors='coerce',
+                                    utc=False
+                                )
+                                # Remove rows where conversion failed
+                                df_filtered = df_filtered.dropna(subset=['date_parsed'])
 
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div style="text-align: center; color: #6c757d; padding: 20px;">
-        <p><strong>Expense Tracker v2.0</strong> - Enhanced with Trial, Subscription Detection & Advanced Analytics</p>
-        <p>🔐 Your data is processed securely and never stored permanently | © 2025 All Right Reserved by <a href="https://tanishmittal.com/">Tanish Mittal</a> </p>
-        <p>Please Provide me your feedback <a href="https://7dpvf63l8gg.typeform.com/to/PGox5Sxf/">Form</a> </p>
+                        # Final safety check before using .dt accessor
+                        if not pd.api.types.is_datetime64_any_dtype(df_filtered['date_parsed']):
+                            st.error("Date parsing failed – cannot create monthly trends.")
+                        else:
+                            # Now safe to use .dt accessor
+                            df_filtered['month_year'] = df_filtered['date_parsed'].dt.to_period('M')
+                            monthly_trend = df_filtered.groupby('month_year')['amount_numeric'].sum()
 
-    </div>
-    """, unsafe_allow_html=True)
-
+                        
+                        # Monthly trend
+                        df_filtered['month_year'] = df_filtered['date_parsed'].dt.to_period('M')
+                        monthly_trend = df_filtered.groupby('month_year')['amount_numeric'].sum()
+                        
+                        if len(monthly_trend) > 1:
+                            latest_month = monthly_trend.iloc[-1]
+                            previous_month = monthly_trend.iloc[-2]
+                            change = ((latest_month - previous_month) / previous_month) * 100
+                            
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric("This Month", f"₹{latest_month:,.2f}")
+                            
+                            with col2:
+                                st.metric("Previous Month", f"₹{previous_month:,.2f}")
+                            
+                            with col3:
+                                st.metric("Change", f"{change:+.1f}%", delta=f"{change:+.1f}%")
+                        
+                        # Subscription analysis (if available)
+                        if st.session_state.subscriptions:
+                            st.markdown("### 🔄 Subscription Analytics")
+                            
+                            metrics = tracker.calculate_subscription_metrics(st.session_state.subscriptions)
+                            
+                            # Subscription vs one-time spending
+                            subscription_spending = metrics['total_monthly']
+                            total_monthly_transactions = df_filtered['amount_numeric'].sum() / max(1, len(df_filtered['date_parsed'].dt.to_period('M').unique()))
+                            one_time_spending = max(0, total_monthly_transactions - subscription_spending)
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.metric("Monthly Subscriptions", f"₹{subscription_spending:,.2f}")
+                            
+                            with col2:
+                                st.metric("Monthly One-time", f"₹{one_time_spending:,.2f}")
+                            
+                            # Subscription efficiency
+                            if subscription_spending > 0:
+                                efficiency = (subscription_spending / total_monthly_transactions) * 100
+                                st.write(f"**Subscription Ratio:** {efficiency:.1f}% of your spending goes to subscriptions")
+                        
+                        # Recommendations
+                        st.markdown("### 💡 Smart Recommendations")
+                        
+                        recommendations = []
+                        
+                        # High spending categories
+                        top_category = df_filtered.groupby('category')['amount_numeric'].sum().idxmax()
+                        top_amount = df_filtered.groupby('category')['amount_numeric'].sum().max()
+                        
+                        if top_amount > df_filtered['amount_numeric'].sum() * 0.3:
+                            recommendations.append(f"🎯 Consider reducing spending in **{top_category}** - it accounts for a large portion of your expenses")
+                        
+                        # Frequent small transactions
+                        small_transactions = df_filtered[df_filtered['amount_numeric'] < 100]
+                        if len(small_transactions) > len(df_filtered) * 0.5:
+                            recommendations.append("☕ You have many small transactions - consider budgeting for daily expenses")
+                        
+                        # Subscription recommendations
+                        if st.session_state.subscriptions:
+                            trial_subs = [sub for sub in st.session_state.subscriptions if sub.get('is_trial', False)]
+                            if trial_subs:
+                                recommendations.append(f"🧪 You have {len(trial_subs)} trial subscriptions - remember to cancel before they convert to paid")
+                        
+                        # Weekend vs weekday spending
+                        df_filtered['is_weekend'] = df_filtered['date_parsed'].dt.dayofweek >= 5
+                        weekend_avg = df_filtered[df_filtered['is_weekend']]['amount_numeric'].mean()
+                        weekday_avg = df_filtered[~df_filtered['is_weekend']]['amount_numeric'].mean()
+                        
+                        if weekend_avg > weekday_avg * 1.5:
+                            recommendations.append("🎉 Your weekend spending is significantly higher - consider setting weekend budgets")
+                        
+                        if recommendations:
+                            for rec in recommendations:
+                                st.info(rec)
+                        else:
+                            st.success("👍 Your spending patterns look balanced!")
+                    
+                    else:
+                        st.warning("No data available in the selected date range.")
+                else:
+                    st.warning("No valid transaction data available for analytics.")
+            else:
+                st.info("💡 Please analyze your transactions first to see advanced analytics.")
+        
+        with tab4:
+            st.markdown("## ⚙️ Settings & Configuration")
+            
+            # Account information
+            st.markdown("### 👤 Account Information")
+            st.info(f"**Logged in as:** {st.session_state.user_email}")
+            
+            # Data management
+            st.markdown("### 🗂️ Data Management")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🗑️ Clear Transaction Data", type="secondary"):
+                    st.session_state.transaction_data = []
+                    st.session_state.results_processed = False
+                    st.success("✅ Transaction data cleared!")
+            
+            with col2:
+                if st.button("🗑️ Clear All Subscriptions", type="secondary"):
+                    if st.checkbox("I confirm I want to delete all subscriptions"):
+                        st.session_state.subscriptions = []
+                        st.success("✅ All subscriptions cleared!")
+            
+            # Configuration status
+            st.markdown("### 🔧 Configuration Status")
+            
+            config_status = config_manager.validate_config()
+            
+            if config_status:
+                st.success("✅ All configurations are properly set up")
+            else:
+                st.error("❌ Some configurations are missing")
+                config_manager.display_config_status()
+            
+            # Privacy and security
+            st.markdown("### 🛡️ Privacy & Security")
+            
+            with st.expander("Data Privacy Information"):
+                st.markdown("""
+                **How we handle your data:**
+                
+                - ✅ **No Data Storage**: Your emails and transactions are processed in real-time and not stored on our servers
+                - ✅ **Local Processing**: All analysis happens locally in your browser session
+                - ✅ **Secure Connections**: All API calls use encrypted HTTPS connections
+                - ✅ **No Sharing**: Your financial data is never shared with third parties
+                - ✅ **Session-Based**: Data is cleared when you close the browser or log out
+                
+                **External Services Used:**
+                - **Replicate API**: For AI-powered transaction categorization (only transaction descriptions are sent)
+                - **Gmail IMAP**: To read your bank transaction emails (read-only access)
+                
+                **Your Rights:**
+                - You can clear all data at any time using the buttons above
+                - You can disconnect your account by logging out
+                - You have full control over which emails are processed
+                """)
+            
+            # Logout
+            st.markdown("### 🚪 Session Management")
+            
+            if st.button("🚪 Logout", type="primary"):
+                st.session_state.authenticated = False
+                st.session_state.user_email = None
+                st.session_state.transaction_data = []
+                st.session_state.results_processed = False
+                st.session_state.subscriptions = []
+                st.success("✅ Successfully logged out!")
+                st.rerun()
 
 if __name__ == "__main__":
     main()
