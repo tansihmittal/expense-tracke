@@ -2017,39 +2017,6 @@ def main():
             caption="Expense Tracker",
             use_container_width=True
         )
-        
-        # Display User Statistics
-        st.markdown("### 📊 Platform Statistics")
-        
-        stats = stats_manager.get_statistics()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown(f"""
-            <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                <div class="metric-title" style="color: rgba(255,255,255,0.9);">Total Users</div>
-                <div class="metric-value">{stats['total_users']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            formatted_amount = stats_manager.format_amount(stats['total_amount_detected'])
-            st.markdown(f"""
-            <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;">
-                <div class="metric-title" style="color: rgba(255,255,255,0.9);">Total Amount Analyzed</div>
-                <div class="metric-value">{formatted_amount}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown(f"""
-            <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white;">
-                <div class="metric-title" style="color: rgba(255,255,255,0.9);">Subscriptions Detected</div>
-                <div class="metric-value">{stats['total_subscriptions_detected']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
         # Supported banks section
         st.markdown("### 🏦 Supported Banks")
         
